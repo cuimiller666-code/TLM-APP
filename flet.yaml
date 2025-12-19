@@ -1,3 +1,8 @@
 app:
-  name: TLM_Cui
-  org: com.cui.tlmapp
+  name: "TLM_Cui"
+  org: "com.cui.tlmapp"
+  description: "TLM Device Analysis Tool"
+
+android:
+  # 强制指定图标路径
+  icon: "icon.png"
