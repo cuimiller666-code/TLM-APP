@@ -1,8 +1,8 @@
 app:
   name: "TLM_Cui"
   org: "com.cui.tlmapp"
-  description: "TLM Device Analysis Tool"
+  version: "1.1.0"       # 给用户看的版本号 (如 1.0.0)
+  build_number: 1        # 给系统看的构建号 (整数，每次更新最好+1，如 1, 2, 3...)
 
 android:
-  # 强制指定图标路径
   icon: "icon.png"
