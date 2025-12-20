@@ -37,7 +37,7 @@ def simple_linear_fit(x_list, y_list):
 
 # --- 2. 主程序 ---
 def main(page):
-    page.title = "TLM Pro v7.1"
+    page.title = "TLM计算_Cui v.0.3"
     page.scroll = "adaptive"
     page.theme_mode = "light"
     page.padding = 20
@@ -80,8 +80,9 @@ def main(page):
 
         # --- UI 组件 ---
 
-    # 【修正】图标全部使用字符串
     name_input = ft.TextField(label="保存名称 (可选)", hint_text="例如: Sample A", bgcolor="white")
+
+    # 【修改】这里去掉了 expand=True，因为变成单行后默认就会撑满
     width_input = ft.TextField(label="通道宽度 W", suffix_text="um", value="100", keyboard_type="number",
                                bgcolor="white")
     voltage_input = ft.TextField(label="测试电压 V", suffix_text="V", value="5.0", keyboard_type="number",
@@ -235,7 +236,6 @@ def main(page):
                 def on_del(e, rid=r['id']):
                     delete_history_item(rid)
 
-                # 【重点修正】这里全部改成了字符串图标 "restore" 和 "delete"
                 item = ft.Container(
                     content=ft.Row([
                         ft.Column([
@@ -256,9 +256,8 @@ def main(page):
     page.add(
         ft.Container(
             content=ft.Row([
-                # 【修正】字符串图标 "science" 和 "history"
                 ft.Icon(name="science", color="white"),
-                ft.Text("TLM Pro v7.1", size=20, weight="bold", color="white"),
+                ft.Text("TLM Pro v7.2", size=20, weight="bold", color="white"),
                 ft.Container(expand=True),
                 ft.IconButton("history", icon_color="white", tooltip="历史", on_click=open_history_dialog)
             ]),
@@ -268,7 +267,10 @@ def main(page):
 
         ft.Text("1. 设置与保存", weight="bold"),
         name_input,
-        ft.Row([width_input, voltage_input]),
+
+
+        width_input,
+        voltage_input,
 
         ft.Container(height=10),
         ft.Text("2. 电流输入 (mA)", weight="bold"),
@@ -276,7 +278,6 @@ def main(page):
 
         ft.Container(height=10),
         ft.Row([
-            # 【修正】字符串图标 "play_arrow" 和 "save"
             ft.ElevatedButton("计算", icon="play_arrow", on_click=on_calc_click, bgcolor="blue", color="white",
                               expand=True),
             ft.Container(width=10),
