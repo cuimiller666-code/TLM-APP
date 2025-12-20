@@ -257,7 +257,7 @@ def main(page):
         ft.Container(
             content=ft.Row([
                 ft.Icon(name="science", color="white"),
-                ft.Text("TLM Pro v7.2", size=20, weight="bold", color="white"),
+                ft.Text("TLM_Cui V 0.3", size=20, weight="bold", color="white"),
                 ft.Container(expand=True),
                 ft.IconButton("history", icon_color="white", tooltip="历史", on_click=open_history_dialog)
             ]),
@@ -295,3 +295,4 @@ def main(page):
 
 if __name__ == "__main__":
     ft.app(target=main)
+
