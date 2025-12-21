@@ -37,10 +37,10 @@ def simple_linear_fit(x_list, y_list):
 
 # --- 2. 主程序 ---
 def main(page):
-    page.title = "TLM计算"
+    page.title = " TLM计算"
     page.scroll = "adaptive"
     page.theme_mode = "light"
-    page.padding = 20
+    page.padding = 18
     page.bgcolor = "#f0f2f5"
 
     # --- 安全存储逻辑 ---
@@ -451,3 +451,4 @@ def main(page):
 
 if __name__ == "__main__":
     ft.app(target=main)
+
