@@ -14,29 +14,35 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          # 移除gradle缓存（关键：解决"No file matched"错误）
-          # cache: 'gradle'  ← 删掉这行
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true  # Flutter缓存保留，不影响
+          cache: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'  # Python缓存保留
+          cache: 'pip'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # 指定Flet最新稳定版，避免旧版本bug
-          pip install "flet[all]==0.24.1" numpy
+          # 安装Flet（兼容无clean命令的版本）
+          pip install "flet[all]" numpy
+          # 验证Flet安装成功（打印版本，方便排查）
+          flet --version
 
-      - name: 清理Flet构建缓存（解决图标缓存）
-        run: flet clean
+      - name: 手动清理Flet缓存和构建目录（替代flet clean）
+        run: |
+          # 删除Flet缓存目录
+          rm -rf .flet
+          # 删除旧的构建目录
+          rm -rf build
+          # 确保目录删除指令即使不存在也不报错
+          exit 0
 
       - name: Build APK（release模式）
         run: flet build apk --release
