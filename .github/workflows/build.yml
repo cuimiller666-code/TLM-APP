@@ -14,22 +14,20 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          # 新增：缓存Java依赖，加速构建
-          cache: 'gradle'
+          # 移除gradle缓存（关键：解决"No file matched"错误）
+          # cache: 'gradle'  ← 删掉这行
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          # 新增：缓存Flutter依赖
-          cache: true
+          cache: true  # Flutter缓存保留，不影响
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          # 新增：缓存Python依赖
-          cache: 'pip'
+          cache: 'pip'  # Python缓存保留
 
       - name: Install Dependencies
         run: |
@@ -37,17 +35,14 @@ jobs:
           # 指定Flet最新稳定版，避免旧版本bug
           pip install "flet[all]==0.24.1" numpy
 
-      - name: 清理Flet构建缓存（关键！解决图标缓存问题）
+      - name: 清理Flet构建缓存（解决图标缓存）
         run: flet clean
 
-      - name: Build APK（使用release模式打包）
-        run: |
-          # 显式指定release模式，确保打包正式版
-          flet build apk --release
+      - name: Build APK（release模式）
+        run: flet build apk --release
 
-      - name: Upload APK（修正上传路径）
+      - name: Upload APK（正确路径）
         uses: actions/upload-artifact@v4
         with:
           name: TLM_Cui_App
-          # 正确的最终APK路径
           path: build/apk/outputs/apk/release/*.apk
