@@ -37,15 +37,49 @@ def simple_linear_fit(x_list, y_list):
 
 # --- 2. 主程序 ---
 def main(page):
-    page.title = "TLM计算_Cui v.0.3"
+    page.title = "TLM计算"
     page.scroll = "adaptive"
     page.theme_mode = "light"
     page.padding = 20
     page.bgcolor = "#f0f2f5"
 
     # --- 安全存储逻辑 ---
+    # 历史记录存储Key
     STORAGE_KEY = "tlm_history_json_safe"
+    # 实时参数存储Key（新增：保存最后一次修改的参数）
+    REAL_PARAMS_KEY = "tlm_real_params_safe"
 
+    # ========== 新增：实时参数存储/读取 ==========
+    def get_real_params():
+        """读取最后一次修改的实时参数，无则返回默认值"""
+        try:
+            json_str = page.client_storage.get(REAL_PARAMS_KEY)
+            if not json_str:
+                return {
+                    "spacing_count": "7",
+                    "spacing_values": "2,3,5,7,9,11,17",
+                    "width": "100",
+                    "voltage": "5.0"
+                }
+            return json.loads(json_str)
+        except:
+            # 异常时返回默认值
+            return {
+                "spacing_count": "7",
+                "spacing_values": "2,3,5,7,9,11,17",
+                "width": "100",
+                "voltage": "5.0"
+            }
+
+    def save_real_params(params):
+        """自动保存实时参数到本地"""
+        try:
+            page.client_storage.set(REAL_PARAMS_KEY, json.dumps(params))
+            return True
+        except:
+            return False
+
+    # ========== 历史记录逻辑 ==========
     def get_history():
         try:
             json_str = page.client_storage.get(STORAGE_KEY)
@@ -78,30 +112,119 @@ def main(page):
         page.client_storage.set(STORAGE_KEY, json.dumps(new_history))
         open_history_dialog(None)
 
-        # --- UI 组件 ---
+    # --- UI 组件 ---
+    # 读取最后一次的实时参数（新增）
+    real_params = get_real_params()
 
     name_input = ft.TextField(label="保存名称 (可选)", hint_text="例如: Sample A", bgcolor="white")
 
-    # 【修改】这里去掉了 expand=True，因为变成单行后默认就会撑满
-    width_input = ft.TextField(label="通道宽度 W", suffix_text="um", value="100", keyboard_type="number",
-                               bgcolor="white")
-    voltage_input = ft.TextField(label="测试电压 V", suffix_text="V", value="5.0", keyboard_type="number",
-                                 bgcolor="white")
+    # 加载历史参数（而非固定默认值）
+    width_input = ft.TextField(
+        label="通道宽度 W",
+        suffix_text="um",
+        value=real_params["width"],  # 加载最后一次值
+        keyboard_type="number",
+        bgcolor="white"
+    )
+    voltage_input = ft.TextField(
+        label="测试电压 V",
+        suffix_text="V",
+        value=real_params["voltage"],  # 加载最后一次值
+        keyboard_type="number",
+        bgcolor="white"
+    )
 
-    spacings = [2, 3, 5, 7, 9, 11, 17]
+    # 自定义间距相关组件（加载历史参数）
+    spacing_count_input = ft.TextField(
+        label="间距数量",
+        value=real_params["spacing_count"],  # 加载最后一次值
+        keyboard_type="number",
+        bgcolor="white",
+        width=page.width - 40 if page.width else 300
+    )
+
+    spacing_values_input = ft.TextField(
+        label="间距数值 (用逗号分隔)",
+        value=real_params["spacing_values"],  # 加载最后一次值
+        hint_text="例如: 2,3,5,7,9,11,17",
+        bgcolor="white",
+        width=page.width - 40 if page.width else 300
+    )
+
+    # ========== 新增：输入框修改时自动保存参数 ==========
+    def auto_save_params(e):
+        """输入框内容变化时，自动保存实时参数"""
+        save_real_params({
+            "spacing_count": spacing_count_input.value.strip(),
+            "spacing_values": spacing_values_input.value.strip(),
+            "width": width_input.value.strip(),
+            "voltage": voltage_input.value.strip()
+        })
+
+    # 给输入框绑定自动保存事件
+    spacing_count_input.on_change = auto_save_params
+    spacing_values_input.on_change = auto_save_params
+    width_input.on_change = auto_save_params
+    voltage_input.on_change = auto_save_params
+
+    # 电流输入框容器
     input_refs = []
     input_col = ft.Column(spacing=10)
 
-    for s in spacings:
-        field = ft.TextField(
-            label=f"间距 {s} um 电流", suffix_text="mA", keyboard_type="number",
-            bgcolor="white", height=50
-        )
-        input_refs.append((s, field))
-        input_col.controls.append(field)
+    def update_spacing_fields(e):
+        """根据输入的间距数量和数值更新输入框"""
+        try:
+            input_col.controls.clear()
+            input_refs.clear()
 
+            # 获取用户输入的间距数值
+            spacing_text = spacing_values_input.value
+            if spacing_text:
+                spacings = [float(s.strip()) for s in spacing_text.split(',') if s.strip()]
+
+                # 处理数量输入
+                try:
+                    count = int(spacing_count_input.value)
+                    if count > 0:
+                        if len(spacings) > count:
+                            spacings = spacings[:count]
+                        elif len(spacings) < count:
+                            # 数量不足时补充生成
+                            if spacings:
+                                last = spacings[-1]
+                                while len(spacings) < count:
+                                    last += 2
+                                    spacings.append(last)
+                            else:
+                                # 无输入时从2开始生成
+                                for i in range(count):
+                                    spacings.append(2 + i * 2)
+                except:
+                    pass  # 数量输入无效时使用所有输入的间距
+
+                # 创建新的电流输入框
+                for s in spacings:
+                    field = ft.TextField(
+                        label=f"间距 {s} um 电流",
+                        suffix_text="mA",
+                        keyboard_type="number",
+                        bgcolor="white",
+                        height=50,
+                        width=page.width - 40 if page.width else 300
+                    )
+                    input_refs.append((s, field))
+                    input_col.controls.append(field)
+
+            page.update()
+            # 自动保存修改后的间距参数
+            auto_save_params(None)
+        except Exception as ex:
+            page.open(ft.SnackBar(ft.Text(f"更新间距失败: {str(ex)}"), bgcolor="red"))
+
+    # 结果显示组件
     result_text = ft.Text("请输入数据点击计算...", size=16, color="grey")
 
+    # 图表组件
     chart = ft.LineChart(
         data_series=[],
         left_axis=ft.ChartAxis(title=ft.Text("总电阻 (Ω)"), labels_size=30),
@@ -109,7 +232,7 @@ def main(page):
         min_y=0, expand=True, height=300
     )
 
-    # --- 核心功能 ---
+    # --- 核心计算功能 ---
     def perform_calculation():
         try:
             w_val = float(width_input.value)
@@ -195,6 +318,7 @@ def main(page):
 
     # --- 历史记录弹窗逻辑 ---
     def restore_record(record):
+        """加载历史记录到输入框"""
         width_input.value = str(record['w'])
         voltage_input.value = str(record['v'])
         name_input.value = record['name']
@@ -208,6 +332,8 @@ def main(page):
 
         page.close(history_dialog)
         perform_calculation()
+        # 加载后自动保存到实时参数
+        auto_save_params(None)
         page.open(ft.SnackBar(ft.Text(f"已加载: {record['name']}"), bgcolor="blue"))
 
     history_list_view = ft.Column(scroll="auto")
@@ -252,12 +378,15 @@ def main(page):
 
         page.open(history_dialog)
 
+    # 初始化间距输入框
+    update_spacing_fields(None)
+
     # --- 页面布局 ---
     page.add(
         ft.Container(
             content=ft.Row([
                 ft.Icon(name="science", color="white"),
-                ft.Text("TLM_Cui V 0.3", size=20, weight="bold", color="white"),
+                ft.Text("LM计算     v.0.4", size=22, weight="bold", color="white"),
                 ft.Container(expand=True),
                 ft.IconButton("history", icon_color="white", tooltip="历史", on_click=open_history_dialog)
             ]),
@@ -267,13 +396,26 @@ def main(page):
 
         ft.Text("1. 设置与保存", weight="bold"),
         name_input,
-
-
         width_input,
         voltage_input,
 
         ft.Container(height=10),
-        ft.Text("2. 电流输入 (mA)", weight="bold"),
+        ft.Text("2. 间距设置", weight="bold"),
+        spacing_count_input,  # 间距数量输入框（独占一行）
+        spacing_values_input,  # 间距数值输入框（独占一行）
+        # 更新间距按钮（用Container包裹设置margin）
+        ft.Container(
+            content=ft.ElevatedButton(
+                "更新间距",
+                icon="refresh",
+                on_click=update_spacing_fields,
+                width=page.width - 40 if page.width else 300
+            ),
+            margin=ft.margin.only(top=10)
+        ),
+
+        ft.Container(height=10),
+        ft.Text("3. 电流输入 (mA)", weight="bold"),
         input_col,
 
         ft.Container(height=10),
@@ -285,14 +427,27 @@ def main(page):
         ]),
 
         ft.Container(height=20),
-        ft.Text("3. 分析结果", weight="bold"),
+        ft.Text("4. 分析结果", weight="bold"),
         ft.Container(content=result_text, bgcolor="#E3F2FD", padding=10, border_radius=5),
 
         ft.Container(height=10),
-        ft.Container(content=chart, bgcolor="white", padding=5, border=ft.border.all(1, "grey"))
+        ft.Container(content=chart, bgcolor="white", padding=5, border=ft.border.all(1, "grey")),
+
+        # 作者信息（纵向排列：作者 + 日期）
+        ft.Container(
+            content=ft.Column([
+                ft.Text("@CuiMiller", size=16, color="grey"),
+                ft.Text("2025/12/21", size=12, color="grey"),
+            ],
+                spacing=5,  # 两行文本之间的间距
+                alignment=ft.MainAxisAlignment.END,  # 列内元素右对齐
+                horizontal_alignment=ft.CrossAxisAlignment.END  # 水平右对齐
+            ),
+            margin=ft.margin.only(top=30, bottom=30),
+            alignment=ft.alignment.bottom_right
+        )
     )
 
 
 if __name__ == "__main__":
     ft.app(target=main)
-
