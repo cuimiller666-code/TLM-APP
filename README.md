@@ -39,7 +39,9 @@ python src\main.py
    - `TLM-APP-Windows`
    - `TLM-APP-Linux`
 
-如果创建 `v2.1.0` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。
+如果创建 `v2.1.2` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。平时直接打开仓库的 `Releases` 页面，下载最新版本里的 `tlm-app.apk`、`TLM-APP-Windows.zip` 或 `TLM-APP-Linux.zip` 即可。
+
+如果 Android APK 打开后白屏，优先确认下载的是最新 Release。v2.1.2 已修复移动端启动阶段提前初始化平台控件导致的白屏风险。
 
 ## CentOS 7 说明
 
