@@ -37,8 +37,23 @@ python src\main.py
 4. 等待构建完成后，在页面底部 `Artifacts` 下载：
    - `TLM-APP-Android-APK`
    - `TLM-APP-Windows`
+   - `TLM-APP-Linux`
 
 如果创建 `v2.1.0` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。
+
+## CentOS 7 说明
+
+GitHub Actions 会生成一个 Linux 桌面包，但它是在 Ubuntu runner 上构建的。CentOS 7 的系统库较旧，如果 Linux 包无法直接运行，推荐使用源码方式运行：
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install flet
+python src/main.py
+```
+
+CentOS 7 默认 Python 版本较旧，需要先安装 Python 3.10 或更高版本。
 
 ## 手动打包
 
@@ -54,6 +69,13 @@ Windows：
 ```powershell
 python -m pip install flet
 flet build windows
+```
+
+Linux：
+
+```bash
+python -m pip install flet
+flet build linux
 ```
 
 构建输出通常位于 `build/` 目录。
