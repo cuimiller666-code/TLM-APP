@@ -1,0 +1,21 @@
+[project]
+name = "tlm-app"
+version = "2.1.0"
+description = "A Flet-based TLM calculator and laboratory timer app."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "CuiMiller" }
+]
+dependencies = [
+    "flet"
+]
+
+[tool.flet]
+org = "com.cuimiller"
+product = "TLM APP"
+company = "CuiMiller Lab"
+copyright = "Copyright (C) 2026 by CuiMiller"
+
+[tool.flet.app]
+path = "src"
