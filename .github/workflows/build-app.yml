@@ -15,10 +15,26 @@ jobs:
   android:
     name: Android APK
     runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      NO_COLOR: "1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,16 +53,28 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TLM-APP-Android-APK
-          path: build/apk/*.apk
+          path: |
+            build/apk/*.apk
+            build/apk/outputs/apk/release/*.apk
           if-no-files-found: error
 
   windows:
     name: Windows app
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      NO_COLOR: "1"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -59,7 +87,10 @@ jobs:
           python -m pip install flet
 
       - name: Build Windows app
-        run: flet build windows --verbose
+        shell: pwsh
+        run: |
+          chcp 65001
+          flet build windows --verbose
 
       - name: Pack Windows artifact
         shell: pwsh
@@ -81,6 +112,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
