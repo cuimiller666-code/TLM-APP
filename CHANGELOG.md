@@ -1,5 +1,16 @@
 # 更新日志
 
+## v2.1.1 - 2026-07-03
+
+### 修复
+
+- 修复 Android APK 启动后可能白屏的问题：将 `FilePicker` 和 `Screenshot` 改为点击导出时再初始化，避免移动端启动阶段触发平台控件异常。
+- 为本地存储写入增加异常兜底，避免 Android 端 `client_storage` 初始化/权限异常导致首页无法显示。
+
+### 改进
+
+- Release 下载资产继续提供 Android APK、Windows 包和 Linux 包。
+
 ## v2.1.0 - 2026-07-03
 
 ### 新增
@@ -11,7 +22,7 @@
   - 自定义分钟倒计时。
   - 倒计时备注显示。
   - 正计时器，支持开始、暂停、重置。
-- 新增 GitHub Actions 自动打包流程，支持下载 Android APK 和 Windows 包。
+- 新增 GitHub Actions 自动打包流程，支持下载 Android APK、Windows 包和 Linux 包。
 
 ### 改进
 
@@ -24,6 +35,7 @@
 - 导出图表格放大，只显示间距与电流值。
 - 图片导出优先使用 Flet 原生截图，减少 Android 打包对二进制 Python 包的依赖。
 - 历史记录上限提升到 1500 条。
+- Linux 构建已加入 Release 资产；CentOS 7 由于系统库较旧，若预构建包无法运行，可使用源码运行方式。
 
 ### 修复
 

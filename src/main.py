@@ -359,7 +359,11 @@ def main(page):
             return default
 
     def storage_set_json(key, value):
-        page.client_storage.set(key, json.dumps(value, ensure_ascii=False))
+        try:
+            page.client_storage.set(key, json.dumps(value, ensure_ascii=False))
+            return True
+        except Exception:
+            return False
 
     def get_presets():
         raw = storage_get_json(PRESETS_KEY, None)
@@ -391,7 +395,11 @@ def main(page):
         return presets[0]["id"]
 
     def set_active_preset_id(preset_id):
-        page.client_storage.set(ACTIVE_PRESET_KEY, preset_id)
+        try:
+            page.client_storage.set(ACTIVE_PRESET_KEY, preset_id)
+            return True
+        except Exception:
+            return False
 
     def get_history():
         history = storage_get_json(HISTORY_KEY, [])
@@ -464,8 +472,8 @@ def main(page):
         height=320,
     )
 
-    save_file_picker = ft.FilePicker()
     pending_save_as = {"path": None}
+    save_file_picker_state = {"control": None}
 
     def on_save_file_result(e):
         target = getattr(e, "path", None)
@@ -482,22 +490,37 @@ def main(page):
         finally:
             pending_save_as["path"] = None
 
-    save_file_picker.on_result = on_save_file_result
-    try:
-        page.overlay.append(save_file_picker)
-    except Exception:
-        pass
+    def get_save_file_picker():
+        if save_file_picker_state["control"] is None:
+            picker = ft.FilePicker()
+            picker.on_result = on_save_file_result
+            save_file_picker_state["control"] = picker
+            try:
+                page.overlay.append(picker)
+                page.update()
+            except Exception:
+                pass
+        return save_file_picker_state["control"]
 
-    export_capture = ft.Screenshot() if hasattr(ft, "Screenshot") else None
-    export_preview_dialog = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("正在生成导出图"),
-        content=ft.Container(
-            content=export_capture,
-            width=960,
-            height=540,
-        ) if export_capture else ft.Text("当前 Flet 版本不支持截图导出"),
-    )
+    export_state = {"capture": None, "dialog": None}
+
+    def get_export_capture_dialog():
+        if not hasattr(ft, "Screenshot"):
+            return None, None
+        if export_state["capture"] is None:
+            capture = ft.Screenshot()
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("正在生成导出图"),
+                content=ft.Container(
+                    content=capture,
+                    width=960,
+                    height=540,
+                ),
+            )
+            export_state["capture"] = capture
+            export_state["dialog"] = dialog
+        return export_state["capture"], export_state["dialog"]
 
     share_service = None
     if hasattr(ft, "Share"):
@@ -820,6 +843,7 @@ def main(page):
         )
 
     async def generate_16x9_png_with_flet(data):
+        export_capture, export_preview_dialog = get_export_capture_dialog()
         if not export_capture:
             raise RuntimeError("当前 Flet 版本不支持 Screenshot")
 
@@ -879,6 +903,7 @@ def main(page):
             return
         file_name = Path(path).name
         pending_save_as["path"] = path
+        save_file_picker = get_save_file_picker()
         try:
             with open(path, "rb") as f:
                 src_bytes = f.read()
