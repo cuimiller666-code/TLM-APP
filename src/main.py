@@ -3,13 +3,40 @@ import json
 import os
 import re
 import shutil
+import struct
 import tempfile
 import asyncio
 import threading
 import time
+import traceback
+import zlib
 from pathlib import Path
 
 import flet as ft
+
+
+def border_all(width=1, color="#000000"):
+    if hasattr(ft, "border") and hasattr(ft.border, "all"):
+        return ft.border.all(width, color)
+    return ft.Border.all(width=width, color=color)
+
+
+def align_value(name):
+    if hasattr(ft, "alignment") and hasattr(ft.alignment, name):
+        return getattr(ft.alignment, name)
+    return getattr(ft.Alignment, name.upper())
+
+
+def padding_only(**kwargs):
+    if hasattr(ft, "padding") and hasattr(ft.padding, "only"):
+        return ft.padding.only(**kwargs)
+    return ft.Padding.only(**kwargs)
+
+
+def margin_only(**kwargs):
+    if hasattr(ft, "margin") and hasattr(ft.margin, "only"):
+        return ft.margin.only(**kwargs)
+    return ft.Margin.only(**kwargs)
 
 
 # --- 1. 纯 Python 核心算法：保留旧版计算代码 ---
@@ -132,6 +159,158 @@ def safe_filename(name):
     cleaned = re.sub(r'[\\/:*?"<>|\r\n]+', "_", (name or "").strip())
     cleaned = re.sub(r"\s+", "_", cleaned).strip("._ ")
     return cleaned or "TLM"
+
+
+def _hex_to_rgb(color):
+    color = color.strip().lstrip("#")
+    if len(color) == 3:
+        color = "".join(ch * 2 for ch in color)
+    return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _png_chunk(chunk_type, data):
+    return (
+        struct.pack(">I", len(data))
+        + chunk_type
+        + data
+        + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+    )
+
+
+def _encode_rgb_png(width, height, pixels):
+    raw_rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            row.extend(pixels[y][x])
+        raw_rows.append(bytes(row))
+    raw = b"".join(raw_rows)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(raw, 6))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _make_canvas(width, height, color="#ffffff"):
+    rgb = _hex_to_rgb(color)
+    return [[rgb for _ in range(width)] for _ in range(height)]
+
+
+def _set_pixel(pixels, x, y, color):
+    height = len(pixels)
+    width = len(pixels[0]) if height else 0
+    if 0 <= x < width and 0 <= y < height:
+        pixels[y][x] = color
+
+
+def _draw_rect(pixels, x1, y1, x2, y2, color):
+    color = _hex_to_rgb(color) if isinstance(color, str) else color
+    left, right = sorted((int(x1), int(x2)))
+    top, bottom = sorted((int(y1), int(y2)))
+    for y in range(top, bottom + 1):
+        for x in range(left, right + 1):
+            _set_pixel(pixels, x, y, color)
+
+
+def _draw_line(pixels, x1, y1, x2, y2, color, thickness=1):
+    color = _hex_to_rgb(color) if isinstance(color, str) else color
+    x1, y1, x2, y2 = int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))
+    dx = abs(x2 - x1)
+    dy = -abs(y2 - y1)
+    sx = 1 if x1 < x2 else -1
+    sy = 1 if y1 < y2 else -1
+    err = dx + dy
+    radius = max(0, int(thickness) // 2)
+
+    while True:
+        for yy in range(y1 - radius, y1 + radius + 1):
+            for xx in range(x1 - radius, x1 + radius + 1):
+                _set_pixel(pixels, xx, yy, color)
+        if x1 == x2 and y1 == y2:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x1 += sx
+        if e2 <= dx:
+            err += dx
+            y1 += sy
+
+
+def _draw_circle(pixels, cx, cy, radius, color):
+    color = _hex_to_rgb(color) if isinstance(color, str) else color
+    cx, cy, radius = int(round(cx)), int(round(cy)), int(radius)
+    r2 = radius * radius
+    for y in range(cy - radius, cy + radius + 1):
+        for x in range(cx - radius, cx + radius + 1):
+            if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2:
+                _set_pixel(pixels, x, y, color)
+
+
+def chart_png_base64(d_list=None, r_list=None, slope=0.0, intercept=0.0, width=640, height=420):
+    d_list = [float(x) for x in (d_list or [])]
+    r_list = [float(y) for y in (r_list or [])]
+    pixels = _make_canvas(width, height, "#ffffff")
+    _draw_rect(pixels, 0, 0, width - 1, height - 1, "#ffffff")
+
+    left = max(34, int(width * 0.10))
+    right = width - max(16, int(width * 0.04))
+    top = max(16, int(height * 0.06))
+    bottom = height - max(30, int(height * 0.10))
+
+    _draw_rect(pixels, left, top, right, bottom, "#ffffff")
+    for i in range(6):
+        x = left + (right - left) * i / 5
+        y = top + (bottom - top) * i / 5
+        _draw_line(pixels, x, top, x, bottom, "#e2e8f0", 1)
+        _draw_line(pixels, left, y, right, y, "#e2e8f0", 1)
+    _draw_line(pixels, left, bottom, right, bottom, "#334155", 2)
+    _draw_line(pixels, left, top, left, bottom, "#334155", 2)
+    _draw_line(pixels, right, top, right, bottom, "#cbd5e1", 1)
+    _draw_line(pixels, left, top, right, top, "#cbd5e1", 1)
+
+    if len(d_list) >= 2 and len(r_list) >= 2:
+        x_min = min(d_list)
+        x_max = max(d_list)
+        if x_min == x_max:
+            x_min -= 1
+            x_max += 1
+        x_pad = max((x_max - x_min) * 0.08, 0.5)
+        line_x = [x_min - x_pad, x_max + x_pad]
+        line_y = [slope * x + intercept for x in line_x]
+        y_values = r_list + line_y
+        y_min = min(y_values)
+        y_max = max(y_values)
+        if y_min == y_max:
+            y_min -= 1
+            y_max += 1
+        y_pad = max((y_max - y_min) * 0.12, 1)
+        y_min -= y_pad
+        y_max += y_pad
+        x_min, x_max = line_x
+
+        def map_x(value):
+            return left + (float(value) - x_min) / (x_max - x_min) * (right - left)
+
+        def map_y(value):
+            return bottom - (float(value) - y_min) / (y_max - y_min) * (bottom - top)
+
+        _draw_line(
+            pixels,
+            map_x(line_x[0]),
+            map_y(line_y[0]),
+            map_x(line_x[1]),
+            map_y(line_y[1]),
+            "#2563eb",
+            3,
+        )
+        for d, r in zip(d_list, r_list):
+            _draw_circle(pixels, map_x(d), map_y(r), max(4, int(width * 0.012)), "#dc2626")
+
+    png = _encode_rgb_png(width, height, pixels)
+    return base64.b64encode(png).decode("ascii")
 
 
 def default_export_dir():
@@ -463,13 +642,17 @@ def main(page):
     input_col = ft.Column(spacing=8)
     result_text = ft.Text("选择预设并输入电流后点击计算", size=15, color="#6b7280")
 
-    chart = ft.LineChart(
-        data_series=[],
-        left_axis=ft.ChartAxis(title=ft.Text("总电阻 (Ω)"), labels_size=32),
-        bottom_axis=ft.ChartAxis(title=ft.Text("间距 d (um)"), labels_size=24),
-        min_y=0,
-        expand=True,
-        height=320,
+    chart_caption = ft.Text("红点为测量值，蓝线为线性拟合。横轴: 间距 d (μm)，纵轴: 总电阻 R (Ω)", size=12, color="#52616f")
+    chart_image = ft.Image(
+        src=chart_png_base64(width=720, height=420),
+        width=720,
+        height=420,
+        fit=ft.BoxFit.CONTAIN,
+    )
+    chart = ft.Column(
+        controls=[chart_caption, chart_image],
+        spacing=6,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
     pending_save_as = {"path": None}
@@ -559,7 +742,7 @@ def main(page):
         for spacing in app_state["active_preset"]["spacings"]:
             field = ft.TextField(
                 label=f"d = {_format_number(spacing)} μm",
-                suffix_text="mA",
+                suffix="mA",
                 keyboard_type="number",
                 bgcolor="white",
                 height=52,
@@ -623,27 +806,7 @@ def main(page):
                     y_min = max(0, y_min - 1)
                     y_max = y_max + 1
 
-                chart.min_y = y_min * 0.8 if y_min > 0 else y_min * 1.2
-                chart.max_y = y_max * 1.1 if y_max > 0 else y_max * 0.8
-                chart.data_series = [
-                    ft.LineChartData(
-                        data_points=[
-                            ft.LineChartDataPoint(x=d, y=r)
-                            for d, r in zip(d_list, r_list)
-                        ],
-                        color="red",
-                        stroke_width=0,
-                        point=True,
-                    ),
-                    ft.LineChartData(
-                        data_points=[
-                            ft.LineChartDataPoint(x=d_min, y=slope * d_min + intercept),
-                            ft.LineChartDataPoint(x=d_max, y=slope * d_max + intercept),
-                        ],
-                        color="blue",
-                        stroke_width=3,
-                    ),
-                ]
+                chart_image.src = chart_png_base64(d_list, r_list, slope, intercept, width=720, height=420)
 
                 result_text.value = (
                     f"拟合优度 R²: {r2:.5f}\n"
@@ -719,16 +882,16 @@ def main(page):
                     width=420,
                     height=24,
                     bgcolor=bg,
-                    alignment=ft.alignment.center,
-                    border=ft.border.all(1, "#334155"),
+                    alignment=align_value("center"),
+                    border=border_all(1, "#334155"),
                 ),
                 ft.Container(
                     content=ft.Text(right, size=14 if header else 13, weight=weight),
                     width=420,
                     height=24,
                     bgcolor=bg,
-                    alignment=ft.alignment.center,
-                    border=ft.border.all(1, "#334155"),
+                    alignment=align_value("center"),
+                    border=border_all(1, "#334155"),
                 ),
             ],
             spacing=0,
@@ -752,34 +915,19 @@ def main(page):
         chart_min_y = y_min - y_pad
         chart_max_y = y_max + y_pad
 
-        export_chart = ft.LineChart(
-            data_series=[
-                ft.LineChartData(
-                    data_points=[
-                        ft.LineChartDataPoint(x=d, y=r)
-                        for d, r in zip(d_list, r_list)
-                    ],
-                    color="red",
-                    stroke_width=0,
-                    point=True,
+        export_chart = ft.Column(
+            controls=[
+                ft.Text("总电阻 R (Ω)", size=12, color="#425466"),
+                ft.Image(
+                    src=chart_png_base64(d_list, r_list, slope, intercept, width=320, height=320),
+                    width=320,
+                    height=320,
+                    fit=ft.BoxFit.CONTAIN,
                 ),
-                ft.LineChartData(
-                    data_points=[
-                        ft.LineChartDataPoint(x=line_x[0], y=line_y[0]),
-                        ft.LineChartDataPoint(x=line_x[1], y=line_y[1]),
-                    ],
-                    color="blue",
-                    stroke_width=3,
-                ),
+                ft.Text("间距 d (μm)", size=12, color="#425466"),
             ],
-            left_axis=ft.ChartAxis(title=ft.Text("总电阻 R (Ω)"), labels_size=36),
-            bottom_axis=ft.ChartAxis(title=ft.Text("间距 d (μm)"), labels_size=24),
-            min_y=chart_min_y,
-            max_y=chart_max_y,
-            min_x=line_x[0],
-            max_x=line_x[1],
-            width=320,
-            height=320,
+            spacing=2,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
         table_rows = [export_table_row("间距 d (μm)", "电流 I (mA)", header=True)]
@@ -793,7 +941,7 @@ def main(page):
             width=960,
             height=540,
             bgcolor="#f7f9fc",
-            padding=ft.padding.only(left=48, right=48, top=20, bottom=18),
+            padding=padding_only(left=48, right=48, top=20, bottom=18),
             content=ft.Column(
                 controls=[
                     ft.Text(data.get("name") or "TLM Analysis", size=25, weight="bold", color="#111827"),
@@ -808,12 +956,12 @@ def main(page):
                     ft.Row(
                         controls=[
                             ft.Container(
-                                content=export_chart,
-                                width=320,
-                                height=320,
-                                bgcolor="white",
-                                border=ft.border.all(1, "#cbd5e1"),
-                            ),
+                content=export_chart,
+                width=320,
+                height=350,
+                bgcolor="white",
+                border=border_all(1, "#cbd5e1"),
+            ),
                             ft.Container(width=86),
                             ft.Container(
                                 content=ft.Column(
@@ -830,7 +978,7 @@ def main(page):
                                 ),
                                 width=300,
                                 height=300,
-                                padding=ft.padding.only(top=40),
+                                padding=padding_only(top=40),
                             ),
                         ],
                         spacing=0,
@@ -880,12 +1028,6 @@ def main(page):
             return None
         try:
             path = await generate_16x9_png_with_flet(data)
-            app_state["last_export_path"] = path
-            return path
-        except Exception:
-            pass
-        try:
-            path = generate_16x9_png(data, default_export_dir())
             app_state["last_export_path"] = path
             return path
         except Exception as ex:
@@ -959,10 +1101,10 @@ def main(page):
     settings_selected_id = {"value": app_state["active_preset"]["id"]}
     settings_preset_dropdown = ft.Dropdown(label="编辑预设", bgcolor="white", expand=True)
     preset_name_input = ft.TextField(label="预设名称", bgcolor="white")
-    width_input = ft.TextField(label="通道宽度 W", suffix_text="μm", keyboard_type="number", bgcolor="white")
-    voltage_input = ft.TextField(label="测试电压 V", suffix_text="V", keyboard_type="number", bgcolor="white")
+    width_input = ft.TextField(label="通道宽度 W", suffix="μm", keyboard_type="number", bgcolor="white")
+    voltage_input = ft.TextField(label="测试电压 V", suffix="V", keyboard_type="number", bgcolor="white")
     tlm_count_input = ft.TextField(label="TLM 数量", keyboard_type="number", bgcolor="white")
-    spacing_values_input = ft.TextField(label="间距列表", suffix_text="μm", bgcolor="white")
+    spacing_values_input = ft.TextField(label="间距列表", suffix="μm", bgcolor="white")
     spacing_preview = ft.Text(size=12, color="#52616f")
 
     def fill_settings_fields(preset):
@@ -1189,7 +1331,7 @@ def main(page):
                         padding=10,
                         bgcolor="white",
                         border_radius=6,
-                        border=ft.border.all(1, "#d9e2ec"),
+                        border=border_all(1, "#d9e2ec"),
                         on_click=on_restore,
                     )
                 )
@@ -1206,7 +1348,7 @@ def main(page):
             ft.Container(
                 content=ft.Row(
                     controls=[
-                        ft.Icon(name="home", color="white"),
+                        ft.Icon("home", color="white"),
                         ft.Text("实验室工具", size=24, weight="bold", color="white"),
                     ]
                 ),
@@ -1221,7 +1363,7 @@ def main(page):
             ft.Container(
                 content=ft.Row(
                     controls=[
-                        ft.Icon(name="science", color="#1565c0", size=42),
+                        ft.Icon("science", color="#1565c0", size=42),
                         ft.Column(
                             controls=[
                                 ft.Text("TLM 计算", size=22, weight="bold", color="#111827"),
@@ -1230,20 +1372,20 @@ def main(page):
                             spacing=4,
                             expand=True,
                         ),
-                        ft.Icon(name="chevron_right", color="#64748b"),
+                        ft.Icon("chevron_right", color="#64748b"),
                     ]
                 ),
                 bgcolor="white",
                 padding=18,
                 border_radius=8,
-                border=ft.border.all(1, "#d9e2ec"),
+                border=border_all(1, "#d9e2ec"),
                 on_click=render_tlm_page,
             ),
             ft.Container(height=12),
             ft.Container(
                 content=ft.Row(
                     controls=[
-                        ft.Icon(name="timer", color="#047857", size=42),
+                        ft.Icon("timer", color="#047857", size=42),
                         ft.Column(
                             controls=[
                                 ft.Text("计时器", size=22, weight="bold", color="#111827"),
@@ -1252,13 +1394,13 @@ def main(page):
                             spacing=4,
                             expand=True,
                         ),
-                        ft.Icon(name="chevron_right", color="#64748b"),
+                        ft.Icon("chevron_right", color="#64748b"),
                     ]
                 ),
                 bgcolor="white",
                 padding=18,
                 border_radius=8,
-                border=ft.border.all(1, "#d9e2ec"),
+                border=border_all(1, "#d9e2ec"),
                 on_click=render_timer_page,
             ),
             ft.Container(height=28),
@@ -1271,7 +1413,7 @@ def main(page):
                     spacing=4,
                     horizontal_alignment=ft.CrossAxisAlignment.END,
                 ),
-                alignment=ft.alignment.bottom_right,
+                alignment=align_value("bottom_right"),
             ),
         )
 
@@ -1300,7 +1442,7 @@ def main(page):
     second_countdown_input = ft.TextField(
         label="秒级倒计时",
         hint_text="例如 300",
-        suffix_text="秒",
+        suffix="秒",
         keyboard_type="number",
         bgcolor="white",
         expand=True,
@@ -1314,7 +1456,7 @@ def main(page):
     custom_minutes_input = ft.TextField(
         label="自定义倒计时",
         hint_text="例如 2.5",
-        suffix_text="分钟",
+        suffix="分钟",
         keyboard_type="number",
         bgcolor="white",
         expand=True,
@@ -1469,7 +1611,7 @@ def main(page):
                 content=ft.Row(
                     controls=[
                         ft.IconButton("arrow_back", tooltip="返回首页", icon_color="white", on_click=render_home_page),
-                        ft.Icon(name="timer", color="white"),
+                        ft.Icon("timer", color="white"),
                         ft.Text("计时器", size=22, weight="bold", color="white"),
                         ft.Container(expand=True),
                         ft.IconButton("science", tooltip="TLM 计算", icon_color="white", on_click=render_tlm_page),
@@ -1512,7 +1654,7 @@ def main(page):
                 bgcolor="white",
                 padding=14,
                 border_radius=8,
-                border=ft.border.all(1, "#d9e2ec"),
+                border=border_all(1, "#d9e2ec"),
             ),
             ft.Container(height=10),
             ft.Container(
@@ -1544,7 +1686,7 @@ def main(page):
                 bgcolor="white",
                 padding=14,
                 border_radius=8,
-                border=ft.border.all(1, "#d9e2ec"),
+                border=border_all(1, "#d9e2ec"),
             ),
             ft.Container(height=10),
             ft.Container(
@@ -1579,7 +1721,7 @@ def main(page):
                 bgcolor="white",
                 padding=14,
                 border_radius=8,
-                border=ft.border.all(1, "#d9e2ec"),
+                border=border_all(1, "#d9e2ec"),
             ),
         )
 
@@ -1590,7 +1732,7 @@ def main(page):
                 content=ft.Row(
                     controls=[
                         ft.IconButton("arrow_back", tooltip="返回首页", icon_color="white", on_click=render_home_page),
-                        ft.Icon(name="science", color="white"),
+                        ft.Icon("science", color="white"),
                         ft.Text("TLM 计算", size=22, weight="bold", color="white"),
                         ft.Container(expand=True),
                         ft.IconButton("timer", tooltip="计时器", icon_color="white", on_click=render_timer_page),
@@ -1632,7 +1774,7 @@ def main(page):
             ft.Text("分析结果", weight="bold"),
             ft.Container(content=result_text, bgcolor="#eaf3ff", padding=12, border_radius=6),
             ft.Container(height=8),
-            ft.Container(content=chart, bgcolor="white", padding=8, border=ft.border.all(1, "#d9e2ec")),
+            ft.Container(content=chart, bgcolor="white", padding=8, border=border_all(1, "#d9e2ec")),
             ft.Container(
                 content=ft.Column(
                     controls=[
@@ -1642,8 +1784,8 @@ def main(page):
                     spacing=4,
                     horizontal_alignment=ft.CrossAxisAlignment.END,
                 ),
-                alignment=ft.alignment.bottom_right,
-                margin=ft.margin.only(top=24, bottom=20),
+                alignment=align_value("bottom_right"),
+                margin=margin_only(top=24, bottom=20),
             ),
         )
 
@@ -1654,5 +1796,28 @@ def main(page):
     render_home_page()
 
 
+def safe_main(page):
+    try:
+        main(page)
+    except Exception as ex:
+        try:
+            page.title = "TLM APP 启动错误"
+            page.scroll = "adaptive"
+            page.padding = 16
+            page.bgcolor = "#fff7ed"
+            page.clean()
+            page.add(
+                ft.Text("启动失败", size=26, weight="bold", color="red"),
+                ft.Text(str(ex), selectable=True),
+                ft.Text(traceback.format_exc(), selectable=True, size=12),
+            )
+            page.update()
+        except Exception:
+            raise
+
+
 if __name__ == "__main__":
-    ft.app(target=main)
+    if hasattr(ft, "run"):
+        ft.run(safe_main)
+    else:
+        ft.app(target=safe_main)

@@ -1,5 +1,15 @@
 # 更新日志
 
+## v2.1.3 - 2026-07-03
+
+### 修复
+
+- 修复 Android APK 打开白屏的真实原因：GitHub 打包使用的 Flet 0.85.3 已移除 `ft.LineChart`，旧代码启动时创建该控件导致 Python 入口直接崩溃。
+- 将主界面和导出图中的拟合图改为纯 Python 生成 PNG 后用 Flet `Image` 显示，不再依赖已删除的图表控件。
+- 兼容 Flet 0.85.3 的 API 变化：`Image.src`、`TextField.suffix`、`Icon(...)`、`Border.all(...)`、`Alignment`、`Padding`、`Margin`。
+- 新增启动错误兜底页面；如果以后 Android 再遇到启动异常，会直接显示错误信息，不再只剩白屏。
+- 锁定 GitHub Actions 和应用依赖为 `flet==0.85.3`，避免以后 Flet 自动升级再次破坏 APK。
+
 ## v2.1.2 - 2026-07-03
 
 ### 修复
