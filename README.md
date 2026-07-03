@@ -39,9 +39,9 @@ python src\main.py
    - `TLM-APP-Windows`
    - `TLM-APP-Linux`
 
-如果创建 `v2.1.3` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。平时直接打开仓库的 `Releases` 页面，下载最新版本里的 `tlm-app.apk`、`TLM-APP-Windows.zip` 或 `TLM-APP-Linux.zip` 即可。
+如果创建 `v2.1.4` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。平时直接打开仓库的 `Releases` 页面，下载最新版本里的 `tlm-app.apk`、`TLM-APP-Windows.zip` 或 `TLM-APP-Linux.zip` 即可。
 
-如果 Android APK 打开后白屏，优先确认下载的是最新 Release。v2.1.3 已修复 Flet 0.85.3 删除 `LineChart`、改动 `TextField` / `Icon` / `Image` 等 API 导致的启动崩溃，并加入启动错误兜底页面。
+如果 Android APK 打开后灰屏或白屏，优先确认下载的是最新 Release。v2.1.4 已将 Android 打包锁定到更成熟的 Flet 0.28.3 模板，并保留 Flet API 兼容修复。
 
 ## CentOS 7 说明
 

@@ -39,6 +39,12 @@ def margin_only(**kwargs):
     return ft.Margin.only(**kwargs)
 
 
+def image_fit_contain():
+    if hasattr(ft, "BoxFit"):
+        return ft.BoxFit.CONTAIN
+    return ft.ImageFit.CONTAIN
+
+
 # --- 1. 纯 Python 核心算法：保留旧版计算代码 ---
 def simple_linear_fit(x_list, y_list):
     x = [float(i) for i in x_list]
@@ -647,7 +653,7 @@ def main(page):
         src=chart_png_base64(width=720, height=420),
         width=720,
         height=420,
-        fit=ft.BoxFit.CONTAIN,
+        fit=image_fit_contain(),
     )
     chart = ft.Column(
         controls=[chart_caption, chart_image],
@@ -922,7 +928,7 @@ def main(page):
                     src=chart_png_base64(d_list, r_list, slope, intercept, width=320, height=320),
                     width=320,
                     height=320,
-                    fit=ft.BoxFit.CONTAIN,
+                    fit=image_fit_contain(),
                 ),
                 ft.Text("间距 d (μm)", size=12, color="#425466"),
             ],
