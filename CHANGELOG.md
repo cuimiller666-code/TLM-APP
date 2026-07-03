@@ -1,5 +1,13 @@
 # 更新日志
 
+## v2.1.5 - 2026-07-03
+
+### 修复
+
+- 调整自动打包组合：Android 使用 `flet==0.28.3` / `flet-cli==0.28.3`，Windows 和 Linux 使用此前构建成功的 `flet==0.85.3`。
+- 移除 `pyproject.toml` 中固定的 `flet` 运行依赖，让各平台打包器自动打包与自身模板匹配的 Flet Python 包，避免 Flutter 模板和 Python Flet 版本不一致。
+- 保留山景图标，并继续将图标同时放在根目录和 `src/assets/icon.png`。
+
 ## v2.1.4 - 2026-07-03
 
 ### 修复
