@@ -39,9 +39,9 @@ python src\main.py
    - `TLM-APP-Windows`
    - `TLM-APP-Linux`
 
-如果创建 `v2.1.5` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。平时直接打开仓库的 `Releases` 页面，下载最新版本里的 `tlm-app.apk`、`TLM-APP-Windows.zip` 或 `TLM-APP-Linux.zip` 即可。
+如果创建 `v2.1.6` 这类 tag，Actions 会把构建结果自动发布到 GitHub Release。平时直接打开仓库的 `Releases` 页面，下载最新版本里的 `tlm-app.apk`、`TLM-APP-Windows.zip` 或 `TLM-APP-Linux.zip` 即可。
 
-如果 Android APK 打开后灰屏或白屏，优先确认下载的是最新 Release。v2.1.5 的 Android 包使用 Flet 0.28.3 打包模板，Windows/Linux 继续使用此前成功的 Flet 0.85.3 打包路线。
+如果 Android APK 打开后灰屏或白屏，优先确认下载的是最新 Release。v2.1.6 的 Android 包使用 Flet 0.28.3 打包模板，Windows/Linux 继续使用此前成功的 Flet 0.85.3 打包路线。
 
 ## CentOS 7 说明
 

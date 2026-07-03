@@ -51,13 +51,22 @@ jobs:
       - name: Build APK
         run: flet build apk --verbose --no-rich-output
 
+      - name: Normalize Android artifact name
+        run: |
+          APK_PATH="$(find build -name '*.apk' | head -n 1)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK file found"
+            find build -maxdepth 5 -type f
+            exit 1
+          fi
+          cp "$APK_PATH" tlm-app.apk
+          ls -lh tlm-app.apk
+
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
           name: TLM-APP-Android-APK
-          path: |
-            build/apk/*.apk
-            build/apk/outputs/apk/release/*.apk
+          path: tlm-app.apk
           if-no-files-found: error
 
   windows:
