@@ -1,8 +1,8 @@
 app:
   name: "TLM_APP"
   org: "com.cuimiller.tlmapp"
-  version: "2.1.6"
-  build_number: 9
+  version: "2.1.7"
+  build_number: 10
 
 android:
   icon: "icon.png"
