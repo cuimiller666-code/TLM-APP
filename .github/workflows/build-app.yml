@@ -49,7 +49,7 @@ jobs:
           python -m pip install flet==0.28.3 flet-cli==0.28.3
 
       - name: Build APK
-        run: flet build apk --verbose --no-rich-output --arch arm64-v8a --cleanup-app --cleanup-packages --exclude __pycache__ *.pyc
+        run: flet build apk --verbose --no-rich-output --arch arm64 --cleanup-app --cleanup-packages
 
       - name: Normalize Android artifact name
         run: |
