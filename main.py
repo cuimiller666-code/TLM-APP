@@ -3,11 +3,13 @@ import json
 import os
 import re
 import shutil
+import struct
 import tempfile
 import asyncio
 import threading
 import time
 import traceback
+import zlib
 from pathlib import Path
 
 import flet as ft
@@ -191,6 +193,160 @@ def find_cjk_font_path():
     return None
 
 
+_FONT_5X7 = {
+    " ": ["000", "000", "000", "000", "000", "000", "000"],
+    ".": ["0", "0", "0", "0", "0", "0", "1"],
+    ",": ["0", "0", "0", "0", "0", "1", "1"],
+    ":": ["0", "1", "0", "0", "0", "1", "0"],
+    "-": ["000", "000", "000", "111", "000", "000", "000"],
+    "_": ["000", "000", "000", "000", "000", "000", "111"],
+    "/": ["001", "001", "010", "010", "100", "100", "000"],
+    "(": ["01", "10", "10", "10", "10", "10", "01"],
+    ")": ["10", "01", "01", "01", "01", "01", "10"],
+    "0": ["111", "101", "101", "101", "101", "101", "111"],
+    "1": ["010", "110", "010", "010", "010", "010", "111"],
+    "2": ["111", "001", "001", "111", "100", "100", "111"],
+    "3": ["111", "001", "001", "111", "001", "001", "111"],
+    "4": ["101", "101", "101", "111", "001", "001", "001"],
+    "5": ["111", "100", "100", "111", "001", "001", "111"],
+    "6": ["111", "100", "100", "111", "101", "101", "111"],
+    "7": ["111", "001", "001", "010", "010", "100", "100"],
+    "8": ["111", "101", "101", "111", "101", "101", "111"],
+    "9": ["111", "101", "101", "111", "001", "001", "111"],
+    "A": ["010", "101", "101", "111", "101", "101", "101"],
+    "B": ["110", "101", "101", "110", "101", "101", "110"],
+    "C": ["111", "100", "100", "100", "100", "100", "111"],
+    "D": ["110", "101", "101", "101", "101", "101", "110"],
+    "E": ["111", "100", "100", "110", "100", "100", "111"],
+    "F": ["111", "100", "100", "110", "100", "100", "100"],
+    "G": ["111", "100", "100", "101", "101", "101", "111"],
+    "H": ["101", "101", "101", "111", "101", "101", "101"],
+    "I": ["111", "010", "010", "010", "010", "010", "111"],
+    "J": ["001", "001", "001", "001", "101", "101", "111"],
+    "K": ["101", "101", "110", "100", "110", "101", "101"],
+    "L": ["100", "100", "100", "100", "100", "100", "111"],
+    "M": ["101", "111", "111", "101", "101", "101", "101"],
+    "N": ["101", "111", "111", "111", "101", "101", "101"],
+    "O": ["111", "101", "101", "101", "101", "101", "111"],
+    "P": ["111", "101", "101", "111", "100", "100", "100"],
+    "Q": ["111", "101", "101", "101", "111", "001", "001"],
+    "R": ["111", "101", "101", "111", "110", "101", "101"],
+    "S": ["111", "100", "100", "111", "001", "001", "111"],
+    "T": ["111", "010", "010", "010", "010", "010", "010"],
+    "U": ["101", "101", "101", "101", "101", "101", "111"],
+    "V": ["101", "101", "101", "101", "101", "101", "010"],
+    "W": ["101", "101", "101", "101", "111", "111", "101"],
+    "X": ["101", "101", "101", "010", "101", "101", "101"],
+    "Y": ["101", "101", "101", "010", "010", "010", "010"],
+    "Z": ["111", "001", "001", "010", "100", "100", "111"],
+}
+
+
+def _rgb(color):
+    color = color.strip().lstrip("#")
+    if len(color) == 3:
+        color = "".join(ch * 2 for ch in color)
+    return bytes(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _put_rect(buf, width, height, x1, y1, x2, y2, color):
+    color = _rgb(color) if isinstance(color, str) else color
+    x1, x2 = sorted((int(x1), int(x2)))
+    y1, y2 = sorted((int(y1), int(y2)))
+    x1, x2 = max(0, min(width - 1, x1)), max(0, min(width - 1, x2))
+    y1, y2 = max(0, min(height - 1, y1)), max(0, min(height - 1, y2))
+    for y in range(y1, y2 + 1):
+        row = (y * width + x1) * 3
+        for _ in range(x1, x2 + 1):
+            buf[row:row + 3] = color
+            row += 3
+
+
+def _put_line(buf, width, height, x1, y1, x2, y2, color, thickness=1):
+    color = _rgb(color) if isinstance(color, str) else color
+    x1, y1, x2, y2 = int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))
+    dx = abs(x2 - x1)
+    dy = -abs(y2 - y1)
+    sx = 1 if x1 < x2 else -1
+    sy = 1 if y1 < y2 else -1
+    err = dx + dy
+    r = max(0, int(thickness) // 2)
+    while True:
+        _put_rect(buf, width, height, x1 - r, y1 - r, x1 + r, y1 + r, color)
+        if x1 == x2 and y1 == y2:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x1 += sx
+        if e2 <= dx:
+            err += dx
+            y1 += sy
+
+
+def _put_circle(buf, width, height, cx, cy, radius, color):
+    color = _rgb(color) if isinstance(color, str) else color
+    cx, cy, radius = int(round(cx)), int(round(cy)), int(radius)
+    r2 = radius * radius
+    for y in range(cy - radius, cy + radius + 1):
+        for x in range(cx - radius, cx + radius + 1):
+            if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2:
+                _put_rect(buf, width, height, x, y, x, y, color)
+
+
+def _safe_ascii(text):
+    text = str(text or "")
+    text = text.replace("Ω", "OHM").replace("μ", "U").replace("²", "2").replace("ρ", "RHO")
+    text = re.sub(r"[^A-Za-z0-9 .,_:/()\\-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _put_text(buf, width, height, x, y, text, color="#111827", scale=4):
+    color = _rgb(color) if isinstance(color, str) else color
+    cursor = int(x)
+    for ch in _safe_ascii(text).upper():
+        glyph = _FONT_5X7.get(ch, _FONT_5X7[" "])
+        glyph_width = max(len(row) for row in glyph)
+        for row_index, row in enumerate(glyph):
+            for col_index, bit in enumerate(row):
+                if bit == "1":
+                    _put_rect(
+                        buf,
+                        width,
+                        height,
+                        cursor + col_index * scale,
+                        y + row_index * scale,
+                        cursor + (col_index + 1) * scale - 1,
+                        y + (row_index + 1) * scale - 1,
+                        color,
+                    )
+        cursor += (glyph_width + 1) * scale
+    return cursor
+
+
+def _png_bytes(width, height, buf):
+    rows = []
+    stride = width * 3
+    for y in range(height):
+        rows.append(b"\x00" + bytes(buf[y * stride:(y + 1) * stride]))
+    raw = b"".join(rows)
+
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 6))
+        + chunk(b"IEND", b"")
+    )
+
+
 def generate_16x9_png(data, output_dir=None):
     output_dir = Path(output_dir or default_export_dir())
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -199,140 +355,85 @@ def generate_16x9_png(data, output_dir=None):
     filename = f"{safe_filename(data.get('name'))}_{stamp}_16x9.png"
     path = output_dir / filename
 
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib import font_manager
+    width, height = 1600, 900
+    buf = bytearray(_rgb("#f7f9fc") * (width * height))
+    d_list = [float(v) for v in data["d_list"]]
+    r_list = [float(v) for v in data["r_list"]]
+    currents = [float(v) for v in data["currents"]]
+    slope = float(data["slope"])
+    intercept = float(data["intercept"])
 
-    font_prop = None
-    font_path = find_cjk_font_path()
-    if font_path:
-        try:
-            font_manager.fontManager.addfont(str(font_path))
-        except Exception:
-            pass
-        font_prop = font_manager.FontProperties(fname=str(font_path))
-        try:
-            plt.rcParams["font.family"] = font_prop.get_name()
-            plt.rcParams["font.sans-serif"] = [
-                font_prop.get_name(),
-                "Microsoft YaHei",
-                "SimHei",
-                "Noto Sans CJK SC",
-            ]
-        except Exception:
-            pass
-    plt.rcParams["axes.unicode_minus"] = False
+    _put_text(buf, width, height, 70, 42, data.get("name") or "TLM ANALYSIS", "#111827", 7)
+    _put_text(buf, width, height, 70, 106, f"W={data['w']:.4g} um  V={data['v']:.4g} V  {export_time}", "#425466", 4)
 
-    d_list = data["d_list"]
-    r_list = data["r_list"]
-    currents = data["currents"]
-    slope = data["slope"]
-    intercept = data["intercept"]
+    chart_x, chart_y, chart_w, chart_h = 80, 170, 560, 500
+    _put_rect(buf, width, height, chart_x, chart_y, chart_x + chart_w, chart_y + chart_h, "#ffffff")
+    _put_line(buf, width, height, chart_x, chart_y, chart_x + chart_w, chart_y, "#cbd5e1", 2)
+    _put_line(buf, width, height, chart_x, chart_y + chart_h, chart_x + chart_w, chart_y + chart_h, "#334155", 3)
+    _put_line(buf, width, height, chart_x, chart_y, chart_x, chart_y + chart_h, "#334155", 3)
+    _put_line(buf, width, height, chart_x + chart_w, chart_y, chart_x + chart_w, chart_y + chart_h, "#cbd5e1", 2)
+    for i in range(1, 5):
+        gx = chart_x + chart_w * i / 5
+        gy = chart_y + chart_h * i / 5
+        _put_line(buf, width, height, gx, chart_y, gx, chart_y + chart_h, "#e2e8f0", 1)
+        _put_line(buf, width, height, chart_x, gy, chart_x + chart_w, gy, "#e2e8f0", 1)
 
-    x_min = min(d_list)
-    x_max = max(d_list)
+    x_min, x_max = min(d_list), max(d_list)
+    if x_min == x_max:
+        x_min -= 1
+        x_max += 1
     x_pad = max((x_max - x_min) * 0.08, 0.5)
     line_x = [x_min - x_pad, x_max + x_pad]
     line_y = [slope * x + intercept for x in line_x]
-
-    fig = plt.figure(figsize=(16, 9), dpi=120)
-    ax = fig.add_axes([0.08, 0.32, 0.304, 0.54])
-    info_ax = fig.add_axes([0.50, 0.40, 0.32, 0.36])
-    info_ax.axis("off")
-
-    fig.patch.set_facecolor("#f7f9fc")
-    ax.set_facecolor("white")
-    ax.scatter(d_list, r_list, s=80, color="#d62728", label="测量值")
-    ax.plot(line_x, line_y, color="#1f77b4", linewidth=3, label="线性拟合")
-    ax.set_xlabel("间距 d (μm)", fontsize=13, fontproperties=font_prop)
-    ax.set_ylabel("总电阻 R (Ω)", fontsize=13, fontproperties=font_prop)
-    ax.grid(True, color="#d9e2ec", linewidth=0.8)
-    ax.legend(loc="best", prop=font_prop)
-    try:
-        ax.set_box_aspect(1)
-    except Exception:
-        pass
-    ax.set_xlim(line_x[0], line_x[1])
-
     y_values = r_list + line_y
-    y_min = min(y_values)
-    y_max = max(y_values)
+    y_min, y_max = min(y_values), max(y_values)
+    if y_min == y_max:
+        y_min -= 1
+        y_max += 1
     y_pad = max((y_max - y_min) * 0.12, 1)
-    ax.set_ylim(y_min - y_pad, y_max + y_pad)
+    y_min -= y_pad
+    y_max += y_pad
+    x_min, x_max = line_x
 
-    title = data.get("name") or "TLM Analysis"
-    fig.suptitle(
-        title,
-        fontsize=24,
-        fontweight="bold",
-        x=0.08,
-        y=0.965,
-        ha="left",
-        fontproperties=font_prop,
-    )
-    fig.text(
-        0.08,
-        0.91,
-        f"预设: {data.get('preset_name', '-')}"
-        f"    W={data['w']:.4g} μm    V={data['v']:.4g} V"
-        f"    导出时间: {export_time}",
-        fontsize=13,
-        color="#425466",
-        fontproperties=font_prop,
-    )
+    def map_x(value):
+        return chart_x + (float(value) - x_min) / (x_max - x_min) * chart_w
 
-    metrics = [
-        ("Rc", f"{data['Rc_norm']:.4f} Ω·mm"),
-        ("Rsh", f"{data['Rsh']:.2f} Ω/□"),
-        ("R²", f"{data['r2']:.5f}"),
+    def map_y(value):
+        return chart_y + chart_h - (float(value) - y_min) / (y_max - y_min) * chart_h
+
+    _put_line(buf, width, height, map_x(line_x[0]), map_y(line_y[0]), map_x(line_x[1]), map_y(line_y[1]), "#2196f3", 8)
+    for d, r in zip(d_list, r_list):
+        _put_circle(buf, width, height, map_x(d), map_y(r), 15, "#f44336")
+    _put_text(buf, width, height, chart_x + 120, chart_y + chart_h + 26, "SPACING D (UM)", "#425466", 4)
+    _put_text(buf, width, height, chart_x + 18, chart_y + 18, "R (OHM)", "#425466", 4)
+
+    info_x, info_y = 760, 200
+    _put_text(buf, width, height, info_x, info_y, "RESULTS", "#111827", 7)
+    lines = [
+        f"R2  {data['r2']:.5f}",
+        f"RSH {data['Rsh']:.2f} OHM/SQ",
+        f"RC  {data['Rc_norm']:.4f} OHM.MM",
+        f"LT  {data['LT']:.4f} UM",
+        f"RHO {data['rho_c']:.2E} OHM.CM2",
     ]
+    for index, line in enumerate(lines):
+        _put_text(buf, width, height, info_x, info_y + 78 + index * 56, line, "#1565c0", 5)
 
-    info_ax.text(0, 0.98, "结果", fontsize=20, fontweight="bold", va="top", fontproperties=font_prop)
-    y = 0.78
-    for label, value in metrics:
-        info_ax.text(0, y, label, fontsize=13, color="#5b677a", va="top", fontproperties=font_prop)
-        info_ax.text(
-            0,
-            y - 0.095,
-            value,
-            fontsize=18,
-            color="#111827",
-            va="top",
-            fontweight="bold",
-            fontproperties=font_prop,
-        )
-        y -= 0.27
+    table_x, table_y, table_w, row_h = 80, 730, 1320, 52
+    _put_rect(buf, width, height, table_x, table_y, table_x + table_w, table_y + row_h * 3, "#ffffff")
+    _put_rect(buf, width, height, table_x, table_y, table_x + table_w, table_y + row_h, "#eef3f8")
+    for row_index in range(4):
+        y = table_y + row_index * row_h
+        _put_line(buf, width, height, table_x, y, table_x + table_w, y, "#334155", 2)
+    _put_line(buf, width, height, table_x, table_y, table_x, table_y + row_h * 3, "#334155", 2)
+    _put_line(buf, width, height, table_x + table_w, table_y, table_x + table_w, table_y + row_h * 3, "#334155", 2)
+    _put_text(buf, width, height, table_x + 34, table_y + 14, "INPUTS", "#111827", 4)
+    d_values = ", ".join(_format_number(d) for d in d_list)
+    i_values = ", ".join(f"{current:g}" for current in currents)
+    _put_text(buf, width, height, table_x + 34, table_y + row_h + 14, f"D (UM): {d_values}", "#111827", 4)
+    _put_text(buf, width, height, table_x + 34, table_y + row_h * 2 + 14, f"I (MA): {i_values}", "#111827", 4)
 
-    rows = [
-        [f"{_format_number(d)}", f"{i:g}"]
-        for d, i in zip(d_list, currents)
-    ]
-    table_ax = fig.add_axes([0.08, 0.035, 0.84, 0.19])
-    table_ax.axis("off")
-    table = table_ax.table(
-        cellText=rows,
-        colLabels=["间距 d (μm)", "电流 I (mA)"],
-        loc="center",
-        cellLoc="center",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(13)
-    table.scale(1, 1.55)
-    for (row, _col), cell in table.get_celld().items():
-        cell.set_edgecolor("#334155")
-        cell.set_linewidth(1.0)
-        if font_prop:
-            cell.get_text().set_fontproperties(font_prop)
-        if row == 0:
-            cell.set_facecolor("#eef3f8")
-            cell.get_text().set_fontweight("bold")
-            cell.get_text().set_fontsize(14)
-        else:
-            cell.get_text().set_fontsize(13)
-
-    fig.savefig(path, facecolor=fig.get_facecolor())
-    plt.close(fig)
+    path.write_bytes(_png_bytes(width, height, buf))
     return str(path)
 
 
