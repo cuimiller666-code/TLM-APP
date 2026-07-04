@@ -1,81 +1,48 @@
 # TLM APP
 
-实验室用 TLM 计算与计时工具，使用 Python + Flet 编写。
+实验室用 TLM 计算与计时工具，使用 Python + Flet 编写，Android 版本保留 `LineChart` 图表功能。
 
 ## 功能
 
-- TLM 计算：选择预设后输入不同间距下的电流，自动计算 `Rc`、`Rsh`、`R²` 等结果。
-- 预设管理：支持保存、编辑、删除 TLM 间距与数量预设。
+- TLM 计算：选择预设，输入不同间距下的电流，自动计算 `Rsh`、`Rc`、`LT`、`ρc` 和拟合优度。
+- 图表显示：在手机端直接显示拟合曲线和测量点。
+- 图片导出：生成 16:9 PNG 图片，保存到手机可见目录。
 - 历史记录：最多保存 1500 条测试记录。
-- 图片导出：生成 16:9 PNG，包含正方形坐标图、`Rc`、`Rsh`、`R²`、导出时间和输入表格。
-- 分享：支持导出图片、另存图片和系统分享。
-- 计时器：首页进入计时器，可使用秒级倒计时、3/5/10/14 分钟倒计时、自定义倒计时和正计时。
+- 预设管理：可保存、编辑、删除 TLM 间距、数量、通道宽度和测试电压。
+- 计时器：支持秒级倒计时、3/5/10/14 分钟倒计时、自定义备注和正计时。
 
-## 本地运行
+## 截图
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-python -m pip install --upgrade pip
-python -m pip install flet==0.28.3 flet-cli==0.28.3
-flet run
-```
+| 首页 | 计时器 |
+| --- | --- |
+| ![首页](docs/screenshots/home.jpg) | ![计时器](docs/screenshots/timer.jpg) |
 
-也可以直接运行：
+| TLM 结果 | 16:9 导出图片 |
+| --- | --- |
+| ![TLM 结果](docs/screenshots/tlm-result.jpg) | ![导出图片](docs/screenshots/export-16x9.png) |
 
-```powershell
-python src\main.py
-```
+## v2.1.11 修复重点
 
-## 在 GitHub 下载 App
+- 修复 Android 启动白屏问题。
+- 修复 Android 手机端历史记录、设置弹窗和窄屏布局问题。
+- 修复计时器切到后台后计时停止的问题。
+- 修复 Android 图片保存路径不可见的问题，优先保存到 `1aTLM` 或 Android 可见媒体目录。
+- 修复导出图片像素字体问题，Android 打包加入 Pillow，导出字体更接近桌面版效果。
+- 修复错误的 `permission_handler` 控件导致的红屏问题。
+- 保留 Flet `LineChart` 图表功能，因此 Android 端继续使用 `flet==0.28.3`。
 
-这个仓库包含 GitHub Actions 自动打包配置。
+## 下载
 
-1. 打开仓库的 `Actions` 页面。
-2. 选择 `Build downloadable apps`。
-3. 点击 `Run workflow`。
-4. 等待构建完成后，在页面底部 `Artifacts` 下载：
-   - `TLM-APP-Android-APK`
-   - `TLM-APP-Windows`
-   - `TLM-APP-Linux`
+请在 GitHub Releases 下载最新 Android APK：
 
-不要使用旧 Release 里的 APK；本次修复以最新一次 Actions 的 `TLM-APP-Android-APK` artifact 为准。当前 Android 包使用 Flet 0.28.3 构建，以保留 `LineChart` 图表功能。
+https://github.com/cuimiller666-code/TLM-APP/releases
 
-## CentOS 7 说明
+## 本地 Android 打包
 
-GitHub Actions 会生成一个 Linux 桌面包，但它是在 Ubuntu runner 上构建的。CentOS 7 的系统库较旧，如果 Linux 包无法直接运行，推荐使用源码方式运行：
-
-```bash
-python3.10 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install flet
-python src/main.py
-```
-
-CentOS 7 默认 Python 版本较旧，需要先安装 Python 3.10 或更高版本。
-
-## 手动打包
-
-Android APK：
+本仓库包含一个本地打包脚本，默认把 Flutter、JDK、Android SDK 和 Gradle 缓存放到 `E:\andanid`：
 
 ```powershell
-python -m pip install flet==0.28.3 flet-cli==0.28.3
-flet build apk
+powershell -ExecutionPolicy Bypass -File E:\123\TLM-APP\build-local-apk.ps1
 ```
 
-Windows：
-
-```powershell
-python -m pip install flet
-flet build windows
-```
-
-Linux：
-
-```bash
-python -m pip install flet
-flet build linux
-```
-
-构建输出通常位于 `build/` 目录。
+如果打包前有旧进程占用文件，可以先关闭旧构建进程后再打包。

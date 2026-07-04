@@ -138,28 +138,47 @@ def safe_filename(name):
     return cleaned or "TLM"
 
 
+def is_android_runtime():
+    return os.name != "nt" and (
+        Path("/storage/emulated/0").exists()
+        or Path("/sdcard").exists()
+        or bool(os.environ.get("ANDROID_DATA"))
+    )
+
+
 def default_export_dir():
     candidates = []
+    android_runtime = is_android_runtime()
 
     if os.name == "nt":
         userprofile = os.environ.get("USERPROFILE")
         if userprofile:
             candidates.append(Path(userprofile) / "Pictures" / "TLM")
 
-    if os.name != "nt":
-        for android_path in ("/storage/emulated/0/Pictures/TLM", "/sdcard/Pictures/TLM"):
-            path = Path(android_path)
-            if path.parent.exists():
-                candidates.append(path)
+    if android_runtime:
+        for android_path in (
+            "/storage/emulated/0/1aTLM",
+            "/sdcard/1aTLM",
+            "/storage/self/primary/1aTLM",
+            "/storage/emulated/0/Download/1aTLM",
+            "/sdcard/Download/1aTLM",
+            "/storage/emulated/0/Android/media/com.cuimiller.tlm_app/1aTLM",
+            "/sdcard/Android/media/com.cuimiller.tlm_app/1aTLM",
+            "/storage/emulated/0/Pictures/TLM",
+            "/sdcard/Pictures/TLM",
+        ):
+            candidates.append(Path(android_path))
 
     home = Path.home()
-    candidates.append(home / "Pictures" / "TLM")
+    if not android_runtime:
+        candidates.append(home / "Pictures" / "TLM")
 
     app_data = os.environ.get("FLET_APP_STORAGE_DATA")
-    if app_data:
+    if app_data and not android_runtime:
         candidates.append(Path(app_data) / "exports")
 
-    candidates.append(Path(tempfile.gettempdir()) / "TLM")
+    if not android_runtime:
+        candidates.append(Path(tempfile.gettempdir()) / "TLM")
 
     for directory in candidates:
         try:
@@ -171,7 +190,21 @@ def default_export_dir():
         except Exception:
             continue
 
+    if android_runtime:
+        raise PermissionError("无法写入手机存储 1aTLM。请在系统设置中给 TLM APP 授予文件/所有文件访问权限。")
+
     return Path(tempfile.gettempdir())
+
+
+def normalize_android_save_path(path):
+    text = str(path or "")
+    if text.startswith("/document/primary:"):
+        rel_path = text.removeprefix("/document/primary:").lstrip("/")
+        if rel_path:
+            return str(Path("/storage/emulated/0") / rel_path)
+    if text.startswith("content://") or text.startswith("/document/"):
+        return None
+    return text
 
 
 def find_cjk_font_path():
@@ -577,7 +610,9 @@ def generate_16x9_png_pillow(data, output_dir=None):
 def generate_16x9_png(data, output_dir=None):
     try:
         return generate_16x9_png_pillow(data, output_dir)
-    except Exception:
+    except Exception as ex:
+        if is_android_runtime():
+            raise RuntimeError(f"高清图片导出组件 Pillow 不可用，无法生成顺滑字体图片: {ex}")
         return generate_16x9_png_basic(data, output_dir)
 
 
@@ -730,6 +765,10 @@ def main(page):
         try:
             source = pending_save_as.get("path")
             if source:
+                target = normalize_android_save_path(target)
+                if not target:
+                    raise RuntimeError("Android 文件选择器返回的是文档 URI，无法直接写入。请使用保存到相册按钮。")
+                Path(target).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
                 show_message(f"已导出: {target}", "green")
         except Exception as ex:
@@ -1148,6 +1187,9 @@ def main(page):
         path = await export_current_png()
         if not path:
             return
+        if os.name != "nt":
+            show_message(f"已保存到 1aTLM: {path}", "green")
+            return
         file_name = Path(path).name
         pending_save_as["path"] = path
         save_file_picker = get_save_file_picker()
@@ -1183,24 +1225,7 @@ def main(page):
         path = await export_current_png()
         if not path:
             return
-
-        if share_service and hasattr(ft, "ShareFile"):
-            try:
-                share_file = ft.ShareFile.from_path(path, name=Path(path).name)
-                result = share_service.share_files(
-                    [share_file],
-                    title="分享 TLM 16:9 图片",
-                    text=f"TLM 结果: {name_input.value or Path(path).stem}",
-                    subject="TLM Analysis",
-                )
-                if hasattr(result, "__await__"):
-                    await result
-                show_message("已打开系统分享面板", "green")
-                return
-            except Exception:
-                pass
-
-        show_message(f"当前 Flet 环境不支持系统分享，图片已保存: {path}", "#f59e0b")
+        show_message(f"当前 Flet 版本没有系统分享接口。图片已保存，请从文件管理或相册分享: {path}", "#f59e0b")
 
     # --- 设置界面 ---
     settings_selected_id = {"value": app_state["active_preset"]["id"]}
