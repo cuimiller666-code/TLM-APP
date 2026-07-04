@@ -48,6 +48,7 @@ HISTORY_LIMIT = 1500
 HISTORY_KEY = "gpt_tlm_history_json_v1"
 PRESETS_KEY = "gpt_tlm_presets_json_v1"
 ACTIVE_PRESET_KEY = "gpt_tlm_active_preset_id_v1"
+TIMER_STATE_KEY = "gpt_tlm_timer_state_json_v1"
 
 
 def _new_id(prefix):
@@ -960,11 +961,19 @@ def main(page):
     settings_selected_id = {"value": app_state["active_preset"]["id"]}
     settings_preset_dropdown = ft.Dropdown(label="编辑预设", bgcolor="white", expand=True)
     preset_name_input = ft.TextField(label="预设名称", bgcolor="white")
-    width_input = ft.TextField(label="通道宽度 W", suffix_text="μm", keyboard_type="number", bgcolor="white")
-    voltage_input = ft.TextField(label="测试电压 V", suffix_text="V", keyboard_type="number", bgcolor="white")
+    width_input = ft.TextField(label="通道宽度 W", suffix_text="μm", keyboard_type="number", bgcolor="white", col={"xs": 12, "sm": 6})
+    voltage_input = ft.TextField(label="测试电压 V", suffix_text="V", keyboard_type="number", bgcolor="white", col={"xs": 12, "sm": 6})
     tlm_count_input = ft.TextField(label="TLM 数量", keyboard_type="number", bgcolor="white")
     spacing_values_input = ft.TextField(label="间距列表", suffix_text="μm", bgcolor="white")
     spacing_preview = ft.Text(size=12, color="#52616f")
+
+    def dialog_width(default_width):
+        page_width = page.width or default_width + 80
+        return max(280, min(default_width, page_width - 48))
+
+    def dialog_height(default_height):
+        page_height = page.height or default_height + 180
+        return max(340, min(default_height, page_height - 140))
 
     def fill_settings_fields(preset):
         settings_selected_id["value"] = preset["id"]
@@ -1075,8 +1084,8 @@ def main(page):
         modal=True,
         title=ft.Text("设置"),
         content=ft.Container(
-            width=620,
-            height=520,
+            width=dialog_width(620),
+            height=dialog_height(520),
             content=ft.Column(
                 controls=[
                     ft.Row(
@@ -1087,7 +1096,7 @@ def main(page):
                         ]
                     ),
                     preset_name_input,
-                    ft.Row([width_input, voltage_input]),
+                    ft.ResponsiveRow([width_input, voltage_input], columns=12, spacing=8, run_spacing=8),
                     tlm_count_input,
                     spacing_values_input,
                     spacing_preview,
@@ -1098,14 +1107,16 @@ def main(page):
         ),
         actions=[
             ft.TextButton("取消", on_click=lambda e: page.close(settings_dialog)),
-            ft.ElevatedButton("使用此预设", icon="check", on_click=use_settings_preset),
-            ft.ElevatedButton("保存预设", icon="save", bgcolor="blue", color="white", on_click=save_settings_preset),
+            ft.ElevatedButton("使用", icon="check", on_click=use_settings_preset),
+            ft.ElevatedButton("保存", icon="save", bgcolor="blue", color="white", on_click=save_settings_preset),
         ],
     )
 
     def open_settings_dialog(e):
         refresh_settings_dropdown()
         fill_settings_fields(app_state["active_preset"])
+        settings_dialog.content.width = dialog_width(620)
+        settings_dialog.content.height = dialog_height(520)
         page.open(settings_dialog)
 
     # --- 历史记录界面 ---
@@ -1149,7 +1160,7 @@ def main(page):
 
     history_dialog = ft.AlertDialog(
         title=ft.Text(f"历史记录 (最多 {HISTORY_LIMIT} 条)"),
-        content=ft.Container(content=history_list_view, width=680, height=500),
+        content=ft.Container(content=history_list_view, width=dialog_width(680), height=dialog_height(500)),
         actions=[ft.TextButton("关闭", on_click=lambda e: page.close(history_dialog))],
     )
 
@@ -1194,6 +1205,8 @@ def main(page):
                         on_click=on_restore,
                     )
                 )
+        history_dialog.content.width = dialog_width(680)
+        history_dialog.content.height = dialog_height(500)
         page.open(history_dialog)
 
     # --- 首页 / 页面切换 ---
@@ -1276,15 +1289,56 @@ def main(page):
             ),
         )
 
+    def header_bar(title, icon_name, color, actions):
+        return ft.Container(
+            content=ft.Row(
+                controls=[
+                    ft.IconButton(
+                        "arrow_back",
+                        tooltip="返回首页",
+                        icon_color="white",
+                        icon_size=24,
+                        width=40,
+                        height=40,
+                        on_click=render_home_page,
+                    ),
+                    ft.Icon(name=icon_name, color="white", size=28),
+                    ft.Text(title, size=22, weight="bold", color="white", expand=True, no_wrap=True),
+                    *actions,
+                ],
+                spacing=2,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=color,
+            padding=ft.padding.only(left=8, right=8, top=10, bottom=10),
+            border_radius=6,
+        )
+
+    def header_button(icon_name, tooltip, handler):
+        return ft.IconButton(
+            icon_name,
+            tooltip=tooltip,
+            icon_color="white",
+            icon_size=24,
+            width=40,
+            height=40,
+            on_click=handler,
+        )
+
     # --- 计时器页 ---
     timer_state = {
         "countdown_stop": None,
         "countdown_token": 0,
         "countdown_running": False,
+        "countdown_end_epoch": None,
+        "countdown_total": 0,
+        "countdown_note": "",
         "stopwatch_stop": None,
         "stopwatch_token": 0,
         "stopwatch_elapsed": 0,
         "stopwatch_running": False,
+        "stopwatch_start_epoch": None,
+        "stopwatch_note": "",
     }
 
     def format_minutes_seconds(total_seconds):
@@ -1335,6 +1389,21 @@ def main(page):
     stopwatch_note_text = ft.Text("备注: -", size=13, color="#52616f")
     stopwatch_status_text = ft.Text("正计时未开始", size=13, color="#64748b")
 
+    def save_timer_state():
+        storage_set_json(
+            TIMER_STATE_KEY,
+            {
+                "countdown_running": timer_state["countdown_running"],
+                "countdown_end_epoch": timer_state["countdown_end_epoch"],
+                "countdown_total": timer_state["countdown_total"],
+                "countdown_note": timer_state["countdown_note"],
+                "stopwatch_running": timer_state["stopwatch_running"],
+                "stopwatch_start_epoch": timer_state["stopwatch_start_epoch"],
+                "stopwatch_elapsed": timer_state["stopwatch_elapsed"],
+                "stopwatch_note": timer_state["stopwatch_note"],
+            },
+        )
+
     def update_countdown_display(remaining, note=None, status=None):
         remaining = max(0, int(remaining))
         countdown_seconds_text.value = f"剩余 {remaining} 秒"
@@ -1353,8 +1422,32 @@ def main(page):
         if stop_event:
             stop_event.set()
         timer_state["countdown_running"] = False
+        timer_state["countdown_end_epoch"] = None
+        timer_state["countdown_total"] = 0
+        save_timer_state()
         if update_status:
             countdown_status_text.value = "倒计时已停止"
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    def refresh_countdown_from_clock(update_page=True):
+        if not timer_state["countdown_running"]:
+            return
+        end_epoch = timer_state.get("countdown_end_epoch")
+        if not end_epoch:
+            return
+        remaining = max(0, int(round(end_epoch - time.time())))
+        note = timer_state.get("countdown_note", "")
+        if remaining <= 0:
+            timer_state["countdown_running"] = False
+            timer_state["countdown_end_epoch"] = None
+            update_countdown_display(0, note, "倒计时完成")
+            save_timer_state()
+        else:
+            update_countdown_display(remaining, note, "倒计时进行中")
+        if update_page:
             try:
                 page.update()
             except Exception:
@@ -1376,20 +1469,23 @@ def main(page):
         stop_event = threading.Event()
         timer_state["countdown_stop"] = stop_event
         timer_state["countdown_running"] = True
+        timer_state["countdown_end_epoch"] = time.time() + seconds
+        timer_state["countdown_total"] = seconds
+        timer_state["countdown_note"] = note
+        save_timer_state()
         update_countdown_display(seconds, note, "倒计时进行中")
 
         def worker():
-            remaining = seconds
-            while remaining > 0 and not stop_event.is_set() and token == timer_state["countdown_token"]:
+            while not stop_event.is_set() and token == timer_state["countdown_token"]:
                 time.sleep(1)
                 if stop_event.is_set() or token != timer_state["countdown_token"]:
                     break
-                remaining -= 1
-                update_countdown_display(remaining, note, "倒计时进行中" if remaining else "倒计时完成")
+                refresh_countdown_from_clock(update_page=False)
+                if not timer_state["countdown_running"]:
+                    break
 
             if not stop_event.is_set() and token == timer_state["countdown_token"]:
-                timer_state["countdown_running"] = False
-                update_countdown_display(0, note, "倒计时完成")
+                refresh_countdown_from_clock(update_page=False)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1411,6 +1507,8 @@ def main(page):
     def reset_countdown(e):
         stop_countdown(update_status=False)
         timer_state["countdown_token"] += 1
+        timer_state["countdown_note"] = ""
+        save_timer_state()
         update_countdown_display(0, "", "倒计时未开始")
 
     def update_stopwatch_display(elapsed, note=None, status=None):
@@ -1436,22 +1534,40 @@ def main(page):
         stop_event = threading.Event()
         timer_state["stopwatch_stop"] = stop_event
         timer_state["stopwatch_running"] = True
-        start_at = time.monotonic() - timer_state["stopwatch_elapsed"]
+        timer_state["stopwatch_start_epoch"] = time.time() - timer_state["stopwatch_elapsed"]
+        timer_state["stopwatch_note"] = note
+        save_timer_state()
         update_stopwatch_display(timer_state["stopwatch_elapsed"], note, "正计时进行中")
 
         def worker():
             while not stop_event.is_set() and token == timer_state["stopwatch_token"]:
-                elapsed = int(time.monotonic() - start_at)
-                update_stopwatch_display(elapsed, note, "正计时进行中")
+                refresh_stopwatch_from_clock(update_page=False)
                 time.sleep(1)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def refresh_stopwatch_from_clock(update_page=True):
+        if not timer_state["stopwatch_running"]:
+            return
+        start_epoch = timer_state.get("stopwatch_start_epoch")
+        if not start_epoch:
+            return
+        elapsed = max(0, int(time.time() - start_epoch))
+        update_stopwatch_display(elapsed, timer_state.get("stopwatch_note", ""), "正计时进行中")
+        if update_page:
+            try:
+                page.update()
+            except Exception:
+                pass
 
     def pause_stopwatch(e):
         stop_event = timer_state.get("stopwatch_stop")
         if stop_event:
             stop_event.set()
+        refresh_stopwatch_from_clock(update_page=False)
         timer_state["stopwatch_running"] = False
+        timer_state["stopwatch_start_epoch"] = None
+        save_timer_state()
         stopwatch_status_text.value = "正计时已暂停"
         try:
             page.update()
@@ -1461,37 +1577,103 @@ def main(page):
     def reset_stopwatch(e):
         pause_stopwatch(None)
         timer_state["stopwatch_token"] += 1
+        timer_state["stopwatch_note"] = ""
+        timer_state["stopwatch_elapsed"] = 0
+        save_timer_state()
         update_stopwatch_display(0, "", "正计时未开始")
 
+    def refresh_timers_from_clock(e=None):
+        refresh_countdown_from_clock(update_page=False)
+        refresh_stopwatch_from_clock(update_page=False)
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def restore_timer_state():
+        saved = storage_get_json(TIMER_STATE_KEY, {})
+        if not isinstance(saved, dict):
+            return
+        if saved.get("countdown_running") and saved.get("countdown_end_epoch"):
+            timer_state["countdown_running"] = True
+            timer_state["countdown_end_epoch"] = float(saved["countdown_end_epoch"])
+            timer_state["countdown_total"] = int(saved.get("countdown_total") or 0)
+            timer_state["countdown_note"] = str(saved.get("countdown_note") or "")
+            refresh_countdown_from_clock(update_page=False)
+            if timer_state["countdown_running"]:
+                timer_state["countdown_token"] += 1
+                token = timer_state["countdown_token"]
+                stop_event = threading.Event()
+                timer_state["countdown_stop"] = stop_event
+
+                def countdown_worker():
+                    while not stop_event.is_set() and token == timer_state["countdown_token"]:
+                        time.sleep(1)
+                        if stop_event.is_set() or token != timer_state["countdown_token"]:
+                            break
+                        refresh_countdown_from_clock(update_page=False)
+                        if not timer_state["countdown_running"]:
+                            break
+
+                threading.Thread(target=countdown_worker, daemon=True).start()
+        elif saved.get("countdown_note"):
+            update_countdown_display(0, str(saved.get("countdown_note") or ""), "倒计时未开始")
+
+        timer_state["stopwatch_elapsed"] = int(saved.get("stopwatch_elapsed") or 0)
+        timer_state["stopwatch_note"] = str(saved.get("stopwatch_note") or "")
+        if saved.get("stopwatch_running") and saved.get("stopwatch_start_epoch"):
+            timer_state["stopwatch_running"] = True
+            timer_state["stopwatch_start_epoch"] = float(saved["stopwatch_start_epoch"])
+            refresh_stopwatch_from_clock(update_page=False)
+            timer_state["stopwatch_token"] += 1
+            token = timer_state["stopwatch_token"]
+            stop_event = threading.Event()
+            timer_state["stopwatch_stop"] = stop_event
+
+            def stopwatch_worker():
+                while not stop_event.is_set() and token == timer_state["stopwatch_token"]:
+                    refresh_stopwatch_from_clock(update_page=False)
+                    time.sleep(1)
+
+            threading.Thread(target=stopwatch_worker, daemon=True).start()
+        elif timer_state["stopwatch_elapsed"]:
+            update_stopwatch_display(timer_state["stopwatch_elapsed"], timer_state["stopwatch_note"], "正计时已暂停")
+
+    page.on_app_lifecycle_state_change = refresh_timers_from_clock
+
     def render_timer_page(e=None):
+        refresh_timers_from_clock()
         page.scroll = "adaptive"
         set_page_controls(
-            ft.Container(
-                content=ft.Row(
-                    controls=[
-                        ft.IconButton("arrow_back", tooltip="返回首页", icon_color="white", on_click=render_home_page),
-                        ft.Icon(name="timer", color="white"),
-                        ft.Text("计时器", size=22, weight="bold", color="white"),
-                        ft.Container(expand=True),
-                        ft.IconButton("science", tooltip="TLM 计算", icon_color="white", on_click=render_tlm_page),
-                    ]
-                ),
-                bgcolor="#047857",
-                padding=12,
-                border_radius=6,
+            header_bar(
+                "计时器",
+                "timer",
+                "#047857",
+                [header_button("science", "TLM 计算", render_tlm_page)],
             ),
             ft.Container(height=10),
             ft.Container(
                 content=ft.Column(
                     controls=[
                         ft.Text("秒级倒计时", weight="bold", size=18),
-                        ft.Row([second_countdown_input, countdown_note_input]),
-                        ft.Row(
+                        ft.ResponsiveRow(
                             controls=[
-                                ft.ElevatedButton("开始秒级倒计时", icon="play_arrow", bgcolor="blue", color="white", expand=True, on_click=start_seconds_countdown),
-                                ft.ElevatedButton("停止", icon="stop", expand=True, on_click=lambda e: stop_countdown()),
-                                ft.ElevatedButton("重置", icon="restart_alt", expand=True, on_click=reset_countdown),
-                            ]
+                                ft.Container(content=second_countdown_input, col={"xs": 12, "sm": 6}),
+                                ft.Container(content=countdown_note_input, col={"xs": 12, "sm": 6}),
+                            ],
+                            columns=12,
+                            spacing=8,
+                            run_spacing=8,
+                        ),
+                        ft.ResponsiveRow(
+                            controls=[
+                                ft.ElevatedButton("开始秒级倒计时", icon="play_arrow", bgcolor="blue", color="white", col={"xs": 12, "sm": 4}, on_click=start_seconds_countdown),
+                                ft.ElevatedButton("停止", icon="stop", col={"xs": 6, "sm": 4}, on_click=lambda e: stop_countdown()),
+                                ft.ElevatedButton("重置", icon="restart_alt", col={"xs": 6, "sm": 4}, on_click=reset_countdown),
+                            ],
+                            columns=12,
+                            spacing=8,
+                            run_spacing=8,
                         ),
                         ft.Container(
                             content=ft.Column(
@@ -1520,23 +1702,32 @@ def main(page):
                 content=ft.Column(
                     controls=[
                         ft.Text("分钟倒计时", weight="bold", size=18),
-                        ft.Row(
+                        ft.ResponsiveRow(
                             controls=[
-                                ft.ElevatedButton("3 分钟", icon="timer", expand=True, on_click=lambda e: start_minutes_countdown(3)),
-                                ft.ElevatedButton("5 分钟", icon="timer", expand=True, on_click=lambda e: start_minutes_countdown(5)),
-                            ]
+                                ft.ElevatedButton("3 分钟", icon="timer", col={"xs": 6, "sm": 6}, on_click=lambda e: start_minutes_countdown(3)),
+                                ft.ElevatedButton("5 分钟", icon="timer", col={"xs": 6, "sm": 6}, on_click=lambda e: start_minutes_countdown(5)),
+                            ],
+                            columns=12,
+                            spacing=8,
+                            run_spacing=8,
                         ),
-                        ft.Row(
+                        ft.ResponsiveRow(
                             controls=[
-                                ft.ElevatedButton("10 分钟", icon="timer", expand=True, on_click=lambda e: start_minutes_countdown(10)),
-                                ft.ElevatedButton("14 分钟", icon="timer", expand=True, on_click=lambda e: start_minutes_countdown(14)),
-                            ]
+                                ft.ElevatedButton("10 分钟", icon="timer", col={"xs": 6, "sm": 6}, on_click=lambda e: start_minutes_countdown(10)),
+                                ft.ElevatedButton("14 分钟", icon="timer", col={"xs": 6, "sm": 6}, on_click=lambda e: start_minutes_countdown(14)),
+                            ],
+                            columns=12,
+                            spacing=8,
+                            run_spacing=8,
                         ),
-                        ft.Row(
+                        ft.ResponsiveRow(
                             controls=[
-                                custom_minutes_input,
-                                ft.ElevatedButton("开始自定义", icon="play_arrow", bgcolor="#047857", color="white", on_click=start_custom_minutes_countdown),
-                            ]
+                                ft.Container(content=custom_minutes_input, col={"xs": 12, "sm": 7}),
+                                ft.ElevatedButton("开始自定义", icon="play_arrow", bgcolor="#047857", color="white", col={"xs": 12, "sm": 5}, on_click=start_custom_minutes_countdown),
+                            ],
+                            columns=12,
+                            spacing=8,
+                            run_spacing=8,
                         ),
                         ft.Text("备注使用上方备注输入框，开始任意倒计时都会一并显示。", size=12, color="#64748b"),
                     ],
@@ -1567,12 +1758,15 @@ def main(page):
                             padding=14,
                             border_radius=6,
                         ),
-                        ft.Row(
+                        ft.ResponsiveRow(
                             controls=[
-                                ft.ElevatedButton("开始", icon="play_arrow", bgcolor="#047857", color="white", expand=True, on_click=start_stopwatch),
-                                ft.ElevatedButton("暂停", icon="pause", expand=True, on_click=pause_stopwatch),
-                                ft.ElevatedButton("重置", icon="restart_alt", expand=True, on_click=reset_stopwatch),
-                            ]
+                                ft.ElevatedButton("开始", icon="play_arrow", bgcolor="#047857", color="white", col={"xs": 4, "sm": 4}, on_click=start_stopwatch),
+                                ft.ElevatedButton("暂停", icon="pause", col={"xs": 4, "sm": 4}, on_click=pause_stopwatch),
+                                ft.ElevatedButton("重置", icon="restart_alt", col={"xs": 4, "sm": 4}, on_click=reset_stopwatch),
+                            ],
+                            columns=12,
+                            spacing=8,
+                            run_spacing=8,
                         ),
                     ],
                     spacing=10,
@@ -1587,21 +1781,15 @@ def main(page):
     def render_tlm_page(e=None):
         page.scroll = "adaptive"
         set_page_controls(
-            ft.Container(
-                content=ft.Row(
-                    controls=[
-                        ft.IconButton("arrow_back", tooltip="返回首页", icon_color="white", on_click=render_home_page),
-                        ft.Icon(name="science", color="white"),
-                        ft.Text("TLM 计算", size=22, weight="bold", color="white"),
-                        ft.Container(expand=True),
-                        ft.IconButton("timer", tooltip="计时器", icon_color="white", on_click=render_timer_page),
-                        ft.IconButton("settings", tooltip="设置", icon_color="white", on_click=open_settings_dialog),
-                        ft.IconButton("history", tooltip="历史", icon_color="white", on_click=open_history_dialog),
-                    ],
-                ),
-                bgcolor="#1565c0",
-                padding=12,
-                border_radius=6,
+            header_bar(
+                "TLM 计算",
+                "science",
+                "#1565c0",
+                [
+                    header_button("timer", "计时器", render_timer_page),
+                    header_button("settings", "设置", open_settings_dialog),
+                    header_button("history", "历史", open_history_dialog),
+                ],
             ),
             ft.Container(height=8),
             ft.Row(
@@ -1652,6 +1840,7 @@ def main(page):
     refresh_preset_dropdown()
     update_summary()
     rebuild_current_inputs(clear_inputs=True)
+    restore_timer_state()
     render_home_page()
 
 
