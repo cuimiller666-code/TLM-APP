@@ -1,6 +1,6 @@
 [project]
 name = "tlm-app"
-version = "2.1.9"
+version = "2.1.10"
 description = "A Flet-based TLM calculator and laboratory timer app."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,3 +17,9 @@ copyright = "Copyright (C) 2026 by CuiMiller"
 
 [tool.flet.app]
 path = "src"
+
+[tool.flet.android]
+dependencies = [
+    "flet==0.28.3",
+    "pillow==11.3.0"
+]

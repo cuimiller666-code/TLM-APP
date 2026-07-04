@@ -347,7 +347,7 @@ def _png_bytes(width, height, buf):
     )
 
 
-def generate_16x9_png(data, output_dir=None):
+def generate_16x9_png_basic(data, output_dir=None):
     output_dir = Path(output_dir or default_export_dir())
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -435,6 +435,150 @@ def generate_16x9_png(data, output_dir=None):
 
     path.write_bytes(_png_bytes(width, height, buf))
     return str(path)
+
+
+def _font_candidates(bold=False):
+    names = ["timesbd.ttf", "Times New Roman Bold.ttf"] if bold else ["times.ttf", "Times New Roman.ttf"]
+    paths = []
+    for name in names:
+        paths.extend([
+            Path(r"C:\Windows\Fonts") / name,
+            Path("/system/fonts") / name,
+        ])
+    if bold:
+        paths.extend([
+            Path("/system/fonts/NotoSerif-Bold.ttf"),
+            Path("/system/fonts/Roboto-Bold.ttf"),
+            Path("/system/fonts/NotoSans-Bold.ttf"),
+        ])
+    else:
+        paths.extend([
+            Path("/system/fonts/NotoSerif-Regular.ttf"),
+            Path("/system/fonts/Roboto-Regular.ttf"),
+            Path("/system/fonts/NotoSans-Regular.ttf"),
+        ])
+    return paths
+
+
+def generate_16x9_png_pillow(data, output_dir=None):
+    from PIL import Image, ImageDraw, ImageFont
+
+    output_dir = Path(output_dir or default_export_dir())
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    export_time = time.strftime("%Y-%m-%d %H:%M:%S")
+    path = output_dir / f"{safe_filename(data.get('name'))}_{stamp}_16x9.png"
+
+    def font(size, bold=False):
+        for candidate in _font_candidates(bold):
+            if candidate.exists():
+                try:
+                    return ImageFont.truetype(str(candidate), size=size)
+                except Exception:
+                    pass
+        try:
+            return ImageFont.truetype("DejaVuSerif-Bold.ttf" if bold else "DejaVuSerif.ttf", size=size)
+        except Exception:
+            return ImageFont.load_default()
+
+    width, height = 1600, 900
+    image = Image.new("RGB", (width, height), "#f7f9fc")
+    draw = ImageDraw.Draw(image)
+
+    title_font = font(58, bold=True)
+    subtitle_font = font(30)
+    label_font = font(28, bold=True)
+    text_font = font(30)
+    metric_font = font(42, bold=True)
+
+    title = _safe_ascii(data.get("name") or "TLM Analysis")
+    draw.text((70, 36), title, fill="#111827", font=title_font)
+    draw.text(
+        (70, 108),
+        f"W={data['w']:.4g} um    V={data['v']:.4g} V    {export_time}",
+        fill="#425466",
+        font=subtitle_font,
+    )
+
+    d_list = [float(v) for v in data["d_list"]]
+    r_list = [float(v) for v in data["r_list"]]
+    currents = [float(v) for v in data["currents"]]
+    slope = float(data["slope"])
+    intercept = float(data["intercept"])
+
+    chart_x, chart_y, chart_w, chart_h = 80, 175, 560, 500
+    draw.rectangle((chart_x, chart_y, chart_x + chart_w, chart_y + chart_h), fill="white", outline="#cbd5e1", width=2)
+    for i in range(1, 5):
+        gx = chart_x + chart_w * i / 5
+        gy = chart_y + chart_h * i / 5
+        draw.line((gx, chart_y, gx, chart_y + chart_h), fill="#e2e8f0", width=1)
+        draw.line((chart_x, gy, chart_x + chart_w, gy), fill="#e2e8f0", width=1)
+    draw.line((chart_x, chart_y + chart_h, chart_x + chart_w, chart_y + chart_h), fill="#334155", width=4)
+    draw.line((chart_x, chart_y, chart_x, chart_y + chart_h), fill="#334155", width=4)
+
+    x_min, x_max = min(d_list), max(d_list)
+    if x_min == x_max:
+        x_min -= 1
+        x_max += 1
+    x_pad = max((x_max - x_min) * 0.08, 0.5)
+    line_x = [x_min - x_pad, x_max + x_pad]
+    line_y = [slope * x + intercept for x in line_x]
+    y_values = r_list + line_y
+    y_min, y_max = min(y_values), max(y_values)
+    if y_min == y_max:
+        y_min -= 1
+        y_max += 1
+    y_pad = max((y_max - y_min) * 0.12, 1)
+    y_min -= y_pad
+    y_max += y_pad
+    x_min, x_max = line_x
+
+    def map_x(value):
+        return chart_x + (float(value) - x_min) / (x_max - x_min) * chart_w
+
+    def map_y(value):
+        return chart_y + chart_h - (float(value) - y_min) / (y_max - y_min) * chart_h
+
+    draw.line((map_x(line_x[0]), map_y(line_y[0]), map_x(line_x[1]), map_y(line_y[1])), fill="#2196f3", width=9)
+    for d, r in zip(d_list, r_list):
+        x, y = map_x(d), map_y(r)
+        draw.ellipse((x - 15, y - 15, x + 15, y + 15), fill="#f44336", outline="#b91c1c")
+    draw.text((chart_x + 150, chart_y + chart_h + 26), "Spacing d (um)", fill="#425466", font=text_font)
+    draw.text((chart_x + 18, chart_y + 18), "R (ohm)", fill="#425466", font=text_font)
+
+    info_x, info_y = 760, 198
+    draw.text((info_x, info_y), "Results", fill="#111827", font=title_font)
+    metrics = [
+        ("R2", f"{data['r2']:.5f}"),
+        ("Rsh", f"{data['Rsh']:.2f} ohm/sq"),
+        ("Rc", f"{data['Rc_norm']:.4f} ohm.mm"),
+        ("LT", f"{data['LT']:.4f} um"),
+        ("rho", f"{data['rho_c']:.2E} ohm.cm2"),
+    ]
+    for index, (label, value) in enumerate(metrics):
+        y = info_y + 92 + index * 58
+        draw.text((info_x, y), label, fill="#5b677a", font=label_font)
+        draw.text((info_x + 110, y - 8), value, fill="#1565c0", font=metric_font)
+
+    table_x, table_y, table_w, row_h = 80, 730, 1320, 52
+    draw.rectangle((table_x, table_y, table_x + table_w, table_y + row_h * 3), fill="white", outline="#334155", width=3)
+    draw.rectangle((table_x, table_y, table_x + table_w, table_y + row_h), fill="#eef3f8")
+    for row_index in range(1, 3):
+        y = table_y + row_index * row_h
+        draw.line((table_x, y, table_x + table_w, y), fill="#334155", width=2)
+    draw.text((table_x + 34, table_y + 10), "Inputs", fill="#111827", font=label_font)
+    draw.text((table_x + 34, table_y + row_h + 10), f"D (um): {', '.join(_format_number(d) for d in d_list)}", fill="#111827", font=text_font)
+    draw.text((table_x + 34, table_y + row_h * 2 + 10), f"I (mA): {', '.join(f'{i:g}' for i in currents)}", fill="#111827", font=text_font)
+
+    image.save(path, format="PNG", optimize=True)
+    return str(path)
+
+
+def generate_16x9_png(data, output_dir=None):
+    try:
+        return generate_16x9_png_pillow(data, output_dir)
+    except Exception:
+        return generate_16x9_png_basic(data, output_dir)
 
 
 def main(page):
