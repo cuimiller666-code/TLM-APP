@@ -186,14 +186,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download artifacts
+      - name: Download Android artifact
         uses: actions/download-artifact@v4
         with:
+          name: TLM-APP-Android-APK
           path: release-assets
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release-assets/**/*.apk
-          body_path: RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/tlm-app.apk \
+            --title "TLM APP $GITHUB_REF_NAME" \
+            --notes-file RELEASE_NOTES.md

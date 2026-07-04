@@ -1,5 +1,12 @@
 # 更新日志
 
+## v2.1.13 - 2026-07-05
+
+### 发布说明
+
+- 改用 GitHub CLI 在 Actions 内创建 GitHub Release 并上传 Android APK，避免 Release action 卡住。
+- 版本号更新为 `versionName 2.1.13`、`versionCode 6`。
+
 ## v2.1.12 - 2026-07-05
 
 ### 发布说明

@@ -23,7 +23,7 @@
 | --- | --- |
 | ![TLM 结果](docs/screenshots/tlm-result.jpg) | ![导出图片](docs/screenshots/export-16x9.png) |
 
-## v2.1.12 修复重点
+## v2.1.13 修复重点
 
 - 修复 Android 启动白屏问题。
 - 修复 Android 手机端历史记录、设置弹窗和窄屏布局问题。
